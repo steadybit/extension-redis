@@ -20,19 +20,28 @@ import (
 
 type cacheExpirationAttack struct{}
 
+type KeyBackup struct {
+	Value      string `json:"value"`
+	TTLSeconds int64  `json:"ttlSeconds"` // -1 means no TTL (persistent), -2 means key didn't exist
+}
+
 type CacheExpirationState struct {
-	RedisURL       string   `json:"redisUrl"`
-	Password       string   `json:"password"`
-	DB             int      `json:"db"`
-	Pattern        string   `json:"pattern"`
-	MaxKeys        int      `json:"maxKeys"`
-	TTLSeconds     int      `json:"ttlSeconds"`
-	AffectedKeys   []string `json:"affectedKeys"`
-	EndTime        int64    `json:"endTime"`
+	RedisURL         string               `json:"redisUrl"`
+	Password         string               `json:"password"`
+	DB               int                  `json:"db"`
+	Pattern          string               `json:"pattern"`
+	MaxKeys          int                  `json:"maxKeys"`
+	TTLSeconds       int                  `json:"ttlSeconds"`
+	AffectedKeys     []string             `json:"affectedKeys"`
+	BackupData       map[string]KeyBackup `json:"backupData"`
+	RestoreOnStop    bool                 `json:"restoreOnStop"`
+	EndTime          int64                `json:"endTime"`
+	SkippedNonString int                  `json:"skippedNonString"`
 }
 
 var _ action_kit_sdk.Action[CacheExpirationState] = (*cacheExpirationAttack)(nil)
 var _ action_kit_sdk.ActionWithStatus[CacheExpirationState] = (*cacheExpirationAttack)(nil)
+var _ action_kit_sdk.ActionWithStop[CacheExpirationState] = (*cacheExpirationAttack)(nil)
 
 func NewCacheExpirationAttack() action_kit_sdk.Action[CacheExpirationState] {
 	return &cacheExpirationAttack{}
@@ -46,7 +55,7 @@ func (a *cacheExpirationAttack) Describe() action_kit_api.ActionDescription {
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.database.cache-expiration",
 		Label:       "Force Cache Expiration",
-		Description: "Sets TTL on keys matching a pattern to force them to expire",
+		Description: "Sets TTL on string keys matching a pattern to force them to expire. Non-string keys are skipped. Optionally restores keys when attack stops.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        extutil.Ptr(redisIcon),
 		TargetSelection: extutil.Ptr(action_kit_api.TargetSelection{
@@ -75,7 +84,7 @@ func (a *cacheExpirationAttack) Describe() action_kit_api.ActionDescription {
 			{
 				Name:         "pattern",
 				Label:        "Key Pattern",
-				Description:  extutil.Ptr("Pattern to match keys for expiration (e.g., 'session:*', 'cache:*')"),
+				Description:  extutil.Ptr("Pattern to match keys for expiration (e.g., 'session:*', 'cache:*'). Only string keys will be affected."),
 				Type:         action_kit_api.ActionParameterTypeString,
 				DefaultValue: extutil.Ptr("steadybit-test:*"),
 				Required:     extutil.Ptr(true),
@@ -95,6 +104,15 @@ func (a *cacheExpirationAttack) Describe() action_kit_api.ActionDescription {
 				Type:         action_kit_api.ActionParameterTypeInteger,
 				DefaultValue: extutil.Ptr("100"),
 				Required:     extutil.Ptr(true),
+			},
+			{
+				Name:         "restoreOnStop",
+				Label:        "Restore on Stop",
+				Description:  extutil.Ptr("Restore expired keys with their original values and TTLs when attack stops"),
+				Type:         action_kit_api.ActionParameterTypeBoolean,
+				DefaultValue: extutil.Ptr("false"),
+				Required:     extutil.Ptr(false),
+				Advanced:     extutil.Ptr(true),
 			},
 		},
 	}
@@ -116,6 +134,7 @@ func (a *cacheExpirationAttack) Prepare(ctx context.Context, state *CacheExpirat
 	pattern := extutil.ToString(request.Config["pattern"])
 	ttl := int(extutil.ToInt64(request.Config["ttl"]))
 	maxKeys := int(extutil.ToInt64(request.Config["maxKeys"]))
+	restoreOnStop := extutil.ToBool(request.Config["restoreOnStop"])
 
 	if pattern == "" {
 		return nil, fmt.Errorf("pattern is required")
@@ -130,7 +149,10 @@ func (a *cacheExpirationAttack) Prepare(ctx context.Context, state *CacheExpirat
 	state.TTLSeconds = ttl
 	state.MaxKeys = maxKeys
 	state.AffectedKeys = []string{}
+	state.BackupData = make(map[string]KeyBackup)
+	state.RestoreOnStop = restoreOnStop
 	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
+	state.SkippedNonString = 0
 
 	return nil, nil
 }
@@ -148,7 +170,7 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 	}
 
 	// Find keys matching pattern using SCAN (non-blocking)
-	var keysToExpire []string
+	var candidateKeys []string
 	var cursor uint64 = 0
 
 	for {
@@ -159,20 +181,14 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 			return nil, fmt.Errorf("failed to scan keys: %w", err)
 		}
 
-		keysToExpire = append(keysToExpire, keys...)
-
-		// Check max keys limit
-		if state.MaxKeys > 0 && len(keysToExpire) >= state.MaxKeys {
-			keysToExpire = keysToExpire[:state.MaxKeys]
-			break
-		}
+		candidateKeys = append(candidateKeys, keys...)
 
 		if cursor == 0 {
 			break
 		}
 	}
 
-	if len(keysToExpire) == 0 {
+	if len(candidateKeys) == 0 {
 		return &action_kit_api.StartResult{
 			Messages: extutil.Ptr([]action_kit_api.Message{
 				{
@@ -183,11 +199,72 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 		}, nil
 	}
 
-	// Set TTL on matching keys
+	// Filter to string keys only and apply max limit
+	var stringKeys []string
+	skippedNonString := 0
+
+	for _, key := range candidateKeys {
+		// Check key type
+		keyType, err := client.Type(ctx, key).Result()
+		if err != nil {
+			log.Warn().Err(err).Str("key", key).Msg("Failed to get key type")
+			continue
+		}
+
+		if keyType != "string" {
+			skippedNonString++
+			continue
+		}
+
+		stringKeys = append(stringKeys, key)
+
+		// Check max keys limit
+		if state.MaxKeys > 0 && len(stringKeys) >= state.MaxKeys {
+			break
+		}
+	}
+
+	state.SkippedNonString = skippedNonString
+
+	if len(stringKeys) == 0 {
+		return &action_kit_api.StartResult{
+			Messages: extutil.Ptr([]action_kit_api.Message{
+				{
+					Level:   extutil.Ptr(action_kit_api.Warn),
+					Message: fmt.Sprintf("No string keys found matching pattern '%s' (skipped %d non-string keys)", state.Pattern, skippedNonString),
+				},
+			}),
+		}, nil
+	}
+
+	// Backup values and TTLs if restore is enabled, then set new TTL
 	expireCount := 0
 	ttlDuration := time.Duration(state.TTLSeconds) * time.Second
 
-	for _, key := range keysToExpire {
+	for _, key := range stringKeys {
+		// Backup value and TTL if restore is enabled
+		if state.RestoreOnStop {
+			// Get current value
+			value, err := client.Get(ctx, key).Result()
+			if err != nil {
+				log.Warn().Err(err).Str("key", key).Msg("Failed to get key value for backup")
+				continue
+			}
+
+			// Get current TTL (-1 = no expiry, -2 = key doesn't exist)
+			ttl, err := client.TTL(ctx, key).Result()
+			var ttlSeconds int64 = -1
+			if err == nil {
+				ttlSeconds = int64(ttl.Seconds())
+			}
+
+			state.BackupData[key] = KeyBackup{
+				Value:      value,
+				TTLSeconds: ttlSeconds,
+			}
+		}
+
+		// Set new short TTL
 		err := client.Expire(ctx, key, ttlDuration).Err()
 		if err != nil {
 			log.Warn().Err(err).Str("key", key).Msg("Failed to set TTL on key")
@@ -197,11 +274,19 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 		expireCount++
 	}
 
+	msg := fmt.Sprintf("Set TTL of %d seconds on %d string keys matching pattern '%s'", state.TTLSeconds, expireCount, state.Pattern)
+	if skippedNonString > 0 {
+		msg += fmt.Sprintf(" (skipped %d non-string keys)", skippedNonString)
+	}
+	if state.RestoreOnStop {
+		msg += ". Keys will be restored on stop."
+	}
+
 	return &action_kit_api.StartResult{
 		Messages: extutil.Ptr([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Set TTL of %d seconds on %d keys matching pattern '%s'", state.TTLSeconds, expireCount, state.Pattern),
+				Message: msg,
 			},
 		}),
 	}, nil
@@ -232,6 +317,112 @@ func (a *cacheExpirationAttack) Status(ctx context.Context, state *CacheExpirati
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Cache expiration: %d/%d keys expired", expiredCount, len(state.AffectedKeys)),
+			},
+		}),
+	}, nil
+}
+
+func (a *cacheExpirationAttack) Stop(ctx context.Context, state *CacheExpirationState) (*action_kit_api.StopResult, error) {
+	if !state.RestoreOnStop || len(state.BackupData) == 0 {
+		return &action_kit_api.StopResult{
+			Messages: extutil.Ptr([]action_kit_api.Message{
+				{
+					Level:   extutil.Ptr(action_kit_api.Info),
+					Message: fmt.Sprintf("Cache expiration attack completed. %d keys were affected.", len(state.AffectedKeys)),
+				},
+			}),
+		}, nil
+	}
+
+	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	if err != nil {
+		return &action_kit_api.StopResult{
+			Messages: extutil.Ptr([]action_kit_api.Message{
+				{
+					Level:   extutil.Ptr(action_kit_api.Warn),
+					Message: fmt.Sprintf("Failed to connect to Redis for restore: %v", err),
+				},
+			}),
+		}, nil
+	}
+	defer client.Close()
+
+	// Restore backed up keys
+	restoredCount := 0
+	alreadyExisted := 0
+
+	for key, backup := range state.BackupData {
+		// Check if key still exists
+		exists, err := client.Exists(ctx, key).Result()
+		if err != nil {
+			log.Warn().Err(err).Str("key", key).Msg("Failed to check key existence")
+			continue
+		}
+
+		if exists > 0 {
+			// Key still exists, just restore the original TTL
+			alreadyExisted++
+			if backup.TTLSeconds == -1 {
+				// Original key had no expiry, remove TTL
+				err = client.Persist(ctx, key).Err()
+				if err != nil {
+					log.Warn().Err(err).Str("key", key).Msg("Failed to restore TTL")
+				} else {
+					log.Info().Str("key", key).Msg("Restored key TTL to persistent (no expiry)")
+					restoredCount++
+				}
+			} else if backup.TTLSeconds > 0 {
+				// Restore original TTL
+				err = client.Expire(ctx, key, time.Duration(backup.TTLSeconds)*time.Second).Err()
+				if err != nil {
+					log.Warn().Err(err).Str("key", key).Msg("Failed to restore TTL")
+				} else {
+					log.Info().Str("key", key).Int64("ttl", backup.TTLSeconds).Msg("Restored key TTL")
+					restoredCount++
+				}
+			} else {
+				restoredCount++
+			}
+		} else {
+			// Key expired, recreate it with original value and TTL
+			if backup.TTLSeconds == -1 {
+				// No expiry
+				err = client.Set(ctx, key, backup.Value, 0).Err()
+				if err != nil {
+					log.Warn().Err(err).Str("key", key).Msg("Failed to restore key")
+				} else {
+					log.Info().Str("key", key).Msg("Recreated expired key (no expiry)")
+					restoredCount++
+				}
+			} else if backup.TTLSeconds > 0 {
+				// With original TTL
+				err = client.Set(ctx, key, backup.Value, time.Duration(backup.TTLSeconds)*time.Second).Err()
+				if err != nil {
+					log.Warn().Err(err).Str("key", key).Msg("Failed to restore key")
+				} else {
+					log.Info().Str("key", key).Int64("ttl", backup.TTLSeconds).Msg("Recreated expired key with TTL")
+					restoredCount++
+				}
+			} else {
+				// TTL was already expired or key didn't exist, recreate without TTL
+				err = client.Set(ctx, key, backup.Value, 0).Err()
+				if err != nil {
+					log.Warn().Err(err).Str("key", key).Msg("Failed to restore key")
+				} else {
+					log.Info().Str("key", key).Msg("Recreated expired key (no expiry)")
+					restoredCount++
+				}
+			}
+		}
+	}
+
+	expiredAndRestored := restoredCount - alreadyExisted
+
+	return &action_kit_api.StopResult{
+		Messages: extutil.Ptr([]action_kit_api.Message{
+			{
+				Level:   extutil.Ptr(action_kit_api.Info),
+				Message: fmt.Sprintf("Restored %d of %d keys (%d were recreated after expiration, %d had TTL restored)", restoredCount, len(state.BackupData), expiredAndRestored, alreadyExisted),
 			},
 		}),
 	}, nil

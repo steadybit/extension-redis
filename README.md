@@ -117,13 +117,14 @@ Discovers Redis databases (db0-db15) and exposes:
 #### Force Cache Expiration
 - **ID**: `com.steadybit.extension_redis.database.cache-expiration`
 - **Target**: Database
-- **Description**: Sets TTL on keys matching a pattern to force expiration
+- **Description**: Sets TTL on string keys matching a pattern to force expiration (non-string keys are skipped)
 - **Parameters**:
   - `duration` - Attack duration (for tracking)
-  - `pattern` - Key pattern to match
+  - `pattern` - Key pattern to match (only string keys are affected)
   - `ttl` - TTL in seconds before keys expire (default: 5)
   - `maxKeys` - Maximum keys to affect (default: 100)
-- **Reversibility**: Not reversible (keys expire permanently)
+  - `restoreOnStop` - Restore keys with original values and TTLs when attack stops (default: false)
+- **Reversibility**: Reversible when `restoreOnStop` is enabled - recreates expired keys with original values and TTLs
 
 #### Create Big Keys
 - **ID**: `com.steadybit.extension_redis.instance.big-key`
