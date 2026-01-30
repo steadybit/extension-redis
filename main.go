@@ -6,6 +6,10 @@ package main
 
 import (
 	"context"
+	_ "net/http/pprof"
+	"os/signal"
+	"syscall"
+
 	_ "github.com/KimMachineGun/automemlimit"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/action-kit/go/action_kit_sdk"
@@ -19,9 +23,6 @@ import (
 	"github.com/steadybit/extension-redis/config"
 	"github.com/steadybit/extension-redis/extredis"
 	_ "go.uber.org/automaxprocs"
-	_ "net/http/pprof"
-	"os/signal"
-	"syscall"
 )
 
 func main() {
@@ -56,7 +57,6 @@ func main() {
 	action_kit_sdk.RegisterAction(extredis.NewCacheHitRateCheck())
 	action_kit_sdk.RegisterAction(extredis.NewBlockedClientsCheck())
 
-	action_kit_sdk.InstallSignalHandler()
 	action_kit_sdk.RegisterCoverageEndpoints()
 
 	exthealth.SetReady(true)
