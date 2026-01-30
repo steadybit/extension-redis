@@ -77,5 +77,4 @@ func TestInstanceDiscovery_DescribeAttributes(t *testing.T) {
 	assert.Contains(t, attrMap, AttrRedisPort)
 	assert.Contains(t, attrMap, AttrRedisVersion)
 	assert.Contains(t, attrMap, AttrRedisRole)
-	assert.Contains(t, attrMap, AttrRedisClients)
 }

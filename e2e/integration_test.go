@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os/exec"
+	"strings"
 	"testing"
 	"time"
 
@@ -112,7 +113,8 @@ func helmInstallRedis(minikube *e2e.Minikube) error {
 			"redis-cli", "-a", "redis-password", "ping",
 		)
 		out, err := cmd.CombinedOutput()
-		if err == nil && string(out) == "PONG\n" {
+		// Check if output contains PONG (ignoring the password warning from redis-cli)
+		if err == nil && strings.Contains(string(out), "PONG") {
 			break
 		}
 		if time.Now().After(deadline) {
