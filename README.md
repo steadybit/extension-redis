@@ -138,6 +138,14 @@ Discovers Redis databases (db0-db15) and exposes:
 - **Reversibility**: Fully reversible - any remaining keys are deleted on stop
 - **Note**: Total size per cycle (keySize × numKeys) must fit within Redis maxmemory limit. The attack will fail with an error if Redis cannot allocate memory for the keys.
 
+#### Trigger Background Save
+- **ID**: `com.steadybit.extension_redis.instance.trigger-bgsave`
+- **Target**: Instance
+- **Description**: Triggers a Redis BGSAVE command to initiate a background RDB snapshot
+- **Parameters**: None (instantaneous trigger)
+- **Use Case**: Test application behavior during Redis background save operations, which can cause performance degradation on large datasets
+- **Reversibility**: Not reversible (snapshot is created)
+
 ### Checks
 
 #### Memory Usage Check
