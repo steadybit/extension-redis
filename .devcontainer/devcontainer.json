@@ -1,0 +1,13 @@
+{
+  "name": "Go",
+	"image": "mcr.microsoft.com/devcontainers/go:1.24-bullseye",
+  "postCreateCommand": "go run .",
+  "forwardPorts": [],
+  "customizations": {
+    "codespaces": {
+      "openFiles": [
+        "README.http"
+      ]
+    }
+  }
+}

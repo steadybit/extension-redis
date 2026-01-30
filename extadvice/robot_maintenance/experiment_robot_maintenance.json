@@ -1,0 +1,53 @@
+{
+	"name": "Robot Maintenance of ${target.attr('robot.name')}",
+	"hypothesis": "In case of am often used robot ${target.attr('robot.name')}, we need to do maintenance by using the log action.",
+	"lanes": [
+		{
+			"steps": [
+				{
+					"type": "wait",
+					"ignoreFailure": false,
+					"parameters": {
+						"duration": "40s"
+					},
+					"customLabel": "TODO VALIDATION: GIVEN: ${target.attr('robot.name')} does not works properly"
+				},
+				{
+					"type": "action",
+					"ignoreFailure": false,
+					"parameters": {
+						"message": "do maintenance",
+						"duration": "60s"
+					},
+					"customLabel": "WHEN: Maintaining robot ${target.attr('robot.name')}",
+					"actionType": "com.steadybit.extension_scaffold.robot.log",
+					"radius": {
+						"targetType": "com.steadybit.extension_scaffold.robot",
+						"predicate": {
+							"operator": "AND",
+							"predicates": [
+								{
+									"key": "robot.name",
+									"operator": "EQUALS",
+									"values": [
+										"${target.attr('robot.name')}"
+									]
+								}
+							]
+						},
+						"query": null,
+						"percentage": 100
+					}
+				},
+				{
+					"type": "wait",
+					"ignoreFailure": false,
+					"parameters": {
+						"duration": "60s"
+					},
+					"customLabel": "TODO VALIDATION: THEN: ${target.attr('robot.name')} recovers"
+				}
+			]
+		}
+	]
+}
