@@ -1,6 +1,36 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 /extension
-/coverage.out
-/e2e/e2e-coverage-docker.out
-/licenses
-/snyk.sarif
 
+# Test binary
+*.test
+
+# Output of go coverage tool
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Build output
+/bin/
+/dist/
+/tmp/
+
+# Environment files
+.env
+.env.local
+*.env
+
+# Kubernetes local files
+values.yaml.local
