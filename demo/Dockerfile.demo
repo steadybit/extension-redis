@@ -1,0 +1,12 @@
+FROM golang:1.25-alpine AS build
+
+WORKDIR /app
+COPY demo-app/ ./
+RUN go mod init demo-app && \
+    go mod tidy && \
+    go build -o demo-app .
+
+FROM alpine:3.21
+RUN apk add --no-cache ca-certificates curl
+COPY --from=build /app/demo-app /demo-app
+ENTRYPOINT ["/demo-app"]

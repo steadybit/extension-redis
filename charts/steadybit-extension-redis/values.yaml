@@ -1,0 +1,123 @@
+# Default values for steadybit-extension-redis
+
+redis:
+  # Redis authentication configuration
+  auth:
+    # Use an existing secret for management endpoints JSON
+    # The secret must contain a key 'endpoints-json' with the JSON array
+    existingSecret: ""
+    # Inline management endpoints configuration (ignored if existingSecret is set)
+    # Example:
+    # managementEndpoints:
+    #   - url: "redis://redis:6379"
+    #     password: "secret"
+    #     name: "my-redis"
+    managementEndpoints: []
+
+# Extension configuration
+extension:
+  # Discovery intervals
+  discoveryIntervalInstanceSeconds: 30
+  discoveryIntervalDatabaseSeconds: 60
+
+  # Attribute exclusions for discovery
+  discoveryAttributesExcludesInstances: []
+  discoveryAttributesExcludesDatabases: []
+
+# Image configuration
+image:
+  name: ghcr.io/steadybit/extension-redis
+  tag: latest
+  pullPolicy: IfNotPresent
+
+# Image pull secrets
+imagePullSecrets: []
+
+# Pod annotations
+podAnnotations: {}
+
+# Pod labels
+podLabels: {}
+
+# Pod security context
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 10000
+  runAsGroup: 10000
+  fsGroup: 10000
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container security context
+securityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# Resources
+resources:
+  requests:
+    memory: "32Mi"
+    cpu: "50m"
+  limits:
+    memory: "128Mi"
+    cpu: "200m"
+
+# Service configuration
+service:
+  type: ClusterIP
+  port: 8083
+
+# Probes
+probes:
+  readiness:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 1
+    failureThreshold: 3
+    successThreshold: 1
+  liveness:
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 5
+    successThreshold: 1
+
+# Service account
+serviceAccount:
+  create: true
+  name: ""
+  annotations: {}
+
+# Node selector
+nodeSelector: {}
+
+# Tolerations
+tolerations: []
+
+# Affinity
+affinity: {}
+
+# TLS configuration
+tls:
+  server:
+    # Enable TLS for the extension server
+    enabled: false
+    # Existing secret with TLS certificate
+    certificate:
+      fromSecret: ""
+      path: ""
+    key:
+      fromSecret: ""
+      path: ""
+
+# Extra environment variables
+extraEnv: []
+
+# Extra volume mounts
+extraVolumeMounts: []
+
+# Extra volumes
+extraVolumes: []

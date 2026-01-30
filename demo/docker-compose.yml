@@ -1,0 +1,83 @@
+version: '3.8'
+
+services:
+  # Redis Master
+  redis-master:
+    image: redis:7-alpine
+    container_name: redis-master
+    ports:
+      - "6379:6379"
+    command: >
+      redis-server
+      --requirepass dev-password
+      --maxmemory 100mb
+      --maxmemory-policy allkeys-lru
+      --maxclients 100
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "dev-password", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - redis-network
+
+  # Redis Replica (for replication testing)
+  redis-replica:
+    image: redis:7-alpine
+    container_name: redis-replica
+    ports:
+      - "6380:6379"
+    command: >
+      redis-server
+      --requirepass dev-password
+      --masterauth dev-password
+      --replicaof redis-master 6379
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "dev-password", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - redis-network
+
+  # Demo application that uses Redis cache
+  demo-app:
+    build:
+      context: .
+      dockerfile: Dockerfile.demo
+    container_name: demo-app
+    ports:
+      - "3400:8080"
+    environment:
+      - REDIS_URL=redis://redis-master:6379
+      - REDIS_PASSWORD=dev-password
+      - APP_PORT=8080
+    depends_on:
+      redis-master:
+        condition: service_healthy
+    networks:
+      - redis-network
+
+  # Load generator for traffic simulation
+  load-generator:
+    build:
+      context: .
+      dockerfile: Dockerfile.demo
+    container_name: load-generator
+    environment:
+      - REDIS_URL=redis://redis-master:6379
+      - REDIS_PASSWORD=dev-password
+      - MODE=loadgen
+      - TARGET_URL=http://demo-app:8080
+      - REQUESTS_PER_SECOND=50
+    depends_on:
+      - demo-app
+    networks:
+      - redis-network
+
+networks:
+  redis-network:
+    driver: bridge

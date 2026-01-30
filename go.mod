@@ -1,31 +1,30 @@
-module github.com/steadybit/extension-scaffold
+module github.com/steadybit/extension-redis
 
-go 1.25.3
+go 1.25
 
 require (
 	github.com/KimMachineGun/automemlimit v0.7.5
+	github.com/google/uuid v1.6.0
 	github.com/kelseyhightower/envconfig v1.4.0
+	github.com/redis/go-redis/v9 v9.7.0
 	github.com/rs/zerolog v1.34.0
 	github.com/steadybit/action-kit/go/action_kit_api/v2 v2.10.4
 	github.com/steadybit/action-kit/go/action_kit_sdk v1.3.1
 	github.com/steadybit/action-kit/go/action_kit_test v1.4.4
-	github.com/steadybit/advice-kit/go/advice_kit_api v1.2.2
-	github.com/steadybit/advice-kit/go/advice_kit_sdk v1.0.1
 	github.com/steadybit/discovery-kit/go/discovery_kit_api v1.7.1
-	github.com/steadybit/discovery-kit/go/discovery_kit_commons v0.3.1
 	github.com/steadybit/discovery-kit/go/discovery_kit_sdk v1.3.2
 	github.com/steadybit/discovery-kit/go/discovery_kit_test v1.2.1
 	github.com/steadybit/event-kit/go/event_kit_api v1.6.2
 	github.com/steadybit/extension-kit v1.10.1
-	github.com/steadybit/preflight-kit/go/preflight_kit_api v1.4.2
-	github.com/steadybit/preflight-kit/go/preflight_kit_sdk/v2 v2.0.2
 	github.com/stretchr/testify v1.11.1
 	go.uber.org/automaxprocs v1.6.0
 )
 
 require (
 	github.com/apapsch/go-jsonmerge/v2 v2.0.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc // indirect
+	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/elastic/go-sysinfo v1.15.4 // indirect
 	github.com/elastic/go-windows v1.0.2 // indirect
 	github.com/emicklei/go-restful/v3 v3.13.0 // indirect
@@ -49,7 +48,6 @@ require (
 	github.com/go-resty/resty/v2 v2.16.5 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/google/gnostic-models v0.7.0 // indirect
-	github.com/google/uuid v1.6.0 // indirect
 	github.com/gorilla/websocket v1.5.4-0.20250319132907-e064f32e3674 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
