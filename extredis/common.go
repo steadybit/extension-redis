@@ -23,10 +23,7 @@ const (
 	AttrRedisVersion     = "redis.version"
 	AttrRedisRole        = "redis.role"
 	AttrRedisClusterMode = "redis.cluster.enabled"
-	AttrRedisMemoryUsed  = "redis.memory.used_bytes"
 	AttrRedisMemoryMax   = "redis.memory.max_bytes"
-	AttrRedisClients     = "redis.connected_clients"
-	AttrRedisUptime      = "redis.uptime_seconds"
 	AttrRedisName        = "redis.name"
 
 	AttrDatabaseIndex = "redis.database.index"

@@ -7,6 +7,9 @@ package extredis
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"time"
+
 	"github.com/rs/zerolog/log"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_api"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_sdk"
@@ -14,8 +17,6 @@ import (
 	"github.com/steadybit/extension-kit/extutil"
 	"github.com/steadybit/extension-redis/clients"
 	"github.com/steadybit/extension-redis/config"
-	"net/url"
-	"time"
 )
 
 type redisInstanceDiscovery struct{}
@@ -56,7 +57,6 @@ func (d *redisInstanceDiscovery) DescribeTarget() discovery_kit_api.TargetDescri
 				{Attribute: AttrRedisPort},
 				{Attribute: AttrRedisVersion},
 				{Attribute: AttrRedisRole},
-				{Attribute: AttrRedisClients},
 			},
 			OrderBy: []discovery_kit_api.OrderBy{
 				{Attribute: AttrRedisHost, Direction: "ASC"},
@@ -92,20 +92,8 @@ func (d *redisInstanceDiscovery) DescribeAttributes() []discovery_kit_api.Attrib
 			Label:     discovery_kit_api.PluralLabel{One: "Cluster mode enabled", Other: "Cluster mode enabled"},
 		},
 		{
-			Attribute: AttrRedisMemoryUsed,
-			Label:     discovery_kit_api.PluralLabel{One: "Memory used (bytes)", Other: "Memory used (bytes)"},
-		},
-		{
 			Attribute: AttrRedisMemoryMax,
 			Label:     discovery_kit_api.PluralLabel{One: "Max memory (bytes)", Other: "Max memory (bytes)"},
-		},
-		{
-			Attribute: AttrRedisClients,
-			Label:     discovery_kit_api.PluralLabel{One: "Connected clients", Other: "Connected clients"},
-		},
-		{
-			Attribute: AttrRedisUptime,
-			Label:     discovery_kit_api.PluralLabel{One: "Uptime (seconds)", Other: "Uptime (seconds)"},
 		},
 		{
 			Attribute: AttrRedisName,
@@ -144,13 +132,6 @@ func discoverInstance(ctx context.Context, endpoint *config.RedisEndpoint) ([]di
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to get memory info")
 		memoryInfo = make(map[string]string)
-	}
-
-	// Get clients info
-	clientsInfo, err := clients.GetRedisInfo(ctx, client, "clients")
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to get clients info")
-		clientsInfo = make(map[string]string)
 	}
 
 	// Get replication info
@@ -196,21 +177,9 @@ func discoverInstance(ctx context.Context, endpoint *config.RedisEndpoint) ([]di
 	if version, ok := serverInfo["redis_version"]; ok {
 		attributes[AttrRedisVersion] = []string{version}
 	}
-	if uptime, ok := serverInfo["uptime_in_seconds"]; ok {
-		attributes[AttrRedisUptime] = []string{uptime}
-	}
 
-	// Add memory info attributes
-	if memUsed, ok := memoryInfo["used_memory"]; ok {
-		attributes[AttrRedisMemoryUsed] = []string{memUsed}
-	}
 	if memMax, ok := memoryInfo["maxmemory"]; ok {
 		attributes[AttrRedisMemoryMax] = []string{memMax}
-	}
-
-	// Add clients info attributes
-	if connectedClients, ok := clientsInfo["connected_clients"]; ok {
-		attributes[AttrRedisClients] = []string{connectedClients}
 	}
 
 	// Add replication info attributes
