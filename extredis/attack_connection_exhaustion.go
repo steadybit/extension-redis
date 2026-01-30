@@ -6,7 +6,12 @@ package extredis
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
+	"strings"
+	"sync"
+	"time"
+
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
@@ -14,8 +19,7 @@ import (
 	"github.com/steadybit/extension-kit/extbuild"
 	"github.com/steadybit/extension-kit/extutil"
 	"github.com/steadybit/extension-redis/clients"
-	"sync"
-	"time"
+	"github.com/steadybit/extension-redis/config"
 )
 
 type connectionExhaustionAttack struct{}
@@ -41,6 +45,53 @@ var _ action_kit_sdk.ActionWithStatus[ConnectionExhaustionState] = (*connectionE
 
 func NewConnectionExhaustionAttack() action_kit_sdk.Action[ConnectionExhaustionState] {
 	return &connectionExhaustionAttack{}
+}
+
+// createSingleConnectionClient creates a Redis client with PoolSize=1 to ensure exactly one connection
+func createSingleConnectionClient(url string, db int) (*redis.Client, error) {
+	// Get endpoint config to retrieve password and other settings
+	endpoint := config.GetEndpointByURL(url)
+
+	opts, err := redis.ParseURL(url)
+	if err != nil {
+		return nil, err
+	}
+
+	// Apply endpoint config if found
+	if endpoint != nil {
+		if endpoint.Password != "" {
+			opts.Password = endpoint.Password
+		}
+		if endpoint.Username != "" {
+			opts.Username = endpoint.Username
+		}
+	}
+
+	if db >= 0 {
+		opts.DB = db
+	}
+
+	// Configure TLS if using rediss://
+	if strings.HasPrefix(url, "rediss://") {
+		if opts.TLSConfig == nil {
+			opts.TLSConfig = &tls.Config{}
+		}
+		opts.TLSConfig.MinVersion = tls.VersionTLS12
+		if endpoint != nil {
+			opts.TLSConfig.InsecureSkipVerify = endpoint.InsecureSkipVerify
+		}
+	}
+
+	// Single connection - no pooling
+	opts.PoolSize = 1
+	opts.MinIdleConns = 1
+	opts.MaxIdleConns = 1
+	opts.DialTimeout = 5 * time.Second
+	opts.ReadTimeout = 3 * time.Second
+	opts.WriteTimeout = 3 * time.Second
+
+	client := redis.NewClient(opts)
+	return client, nil
 }
 
 func (a *connectionExhaustionAttack) NewEmptyState() ConnectionExhaustionState {
@@ -84,8 +135,8 @@ func (a *connectionExhaustionAttack) Describe() action_kit_api.ActionDescription
 				Type:         action_kit_api.ActionParameterTypeInteger,
 				DefaultValue: extutil.Ptr("100"),
 				Required:     extutil.Ptr(true),
-				MinValue:          extutil.Ptr(1),
-				MaxValue:          extutil.Ptr(10000),
+				MinValue:     extutil.Ptr(1),
+				MaxValue:     extutil.Ptr(10000),
 			},
 		},
 	}
@@ -124,25 +175,36 @@ func (a *connectionExhaustionAttack) Start(ctx context.Context, state *Connectio
 	// Generate unique key for this attack instance
 	attackKey := fmt.Sprintf("%s-%d", state.RedisURL, time.Now().UnixNano())
 
-	// Open connections
+	// Open connections - using single-connection clients to control exact count
 	var connections []*redis.Client
 	successCount := 0
 	failCount := 0
+	var lastErr error
 
 	for i := 0; i < state.NumConnections; i++ {
-		client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+		// Use single-connection client (PoolSize=1) to ensure exact connection count
+		client, err := createSingleConnectionClient(state.RedisURL, state.DB)
 		if err != nil {
 			failCount++
+			lastErr = err
 			log.Debug().Err(err).Int("index", i).Msg("Failed to create connection")
 			continue
 		}
 
-		// Verify the connection works
-		err = clients.PingRedis(ctx, client)
+		// Verify the connection works (this also establishes the connection)
+		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		err = client.Ping(pingCtx).Err()
+		cancel()
 		if err != nil {
 			client.Close()
 			failCount++
+			lastErr = err
 			log.Debug().Err(err).Int("index", i).Msg("Failed to ping on new connection")
+			// Stop trying if we're hitting connection limits
+			if failCount > 5 && successCount > 0 {
+				log.Info().Int("successCount", successCount).Int("failCount", failCount).Msg("Stopping connection attempts after repeated failures")
+				break
+			}
 			continue
 		}
 
@@ -157,17 +219,33 @@ func (a *connectionExhaustionAttack) Start(ctx context.Context, state *Connectio
 
 	state.ConnectionCount = successCount
 
+	// If no connections were opened, return an error
+	if successCount == 0 {
+		errMsg := fmt.Sprintf("Failed to open any connections to Redis. Attempted %d connections.", state.NumConnections)
+		if lastErr != nil {
+			errMsg += fmt.Sprintf(" Last error: %v", lastErr)
+		}
+		return &action_kit_api.StartResult{
+			Messages: extutil.Ptr([]action_kit_api.Message{
+				{
+					Level:   extutil.Ptr(action_kit_api.Error),
+					Message: errMsg,
+				},
+			}),
+		}, fmt.Errorf("failed to open any connections: %v", lastErr)
+	}
+
 	messages := []action_kit_api.Message{
 		{
 			Level:   extutil.Ptr(action_kit_api.Info),
-			Message: fmt.Sprintf("Opened %d connections to Redis", successCount),
+			Message: fmt.Sprintf("Opened %d connections to Redis (each with PoolSize=1)", successCount),
 		},
 	}
 
 	if failCount > 0 {
 		messages = append(messages, action_kit_api.Message{
 			Level:   extutil.Ptr(action_kit_api.Warn),
-			Message: fmt.Sprintf("Failed to open %d connections", failCount),
+			Message: fmt.Sprintf("Failed to open %d connections (connection limit may be reached)", failCount),
 		})
 	}
 
@@ -206,16 +284,20 @@ func (a *connectionExhaustionAttack) Status(ctx context.Context, state *Connecti
 	completed := now >= state.EndTime
 
 	// Get current connection count from Redis
+	connectedClients := "unknown (connection exhausted)"
 	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
-	var connectedClients string
 	if err == nil {
+		defer client.Close()
 		clientsInfo, err := clients.GetRedisInfo(ctx, client, "clients")
 		if err == nil {
 			if cc, ok := clientsInfo["connected_clients"]; ok {
 				connectedClients = cc
 			}
+		} else {
+			log.Debug().Err(err).Msg("Failed to get Redis clients info during connection exhaustion")
 		}
-		client.Close()
+	} else {
+		log.Debug().Err(err).Msg("Failed to create client for status check during connection exhaustion")
 	}
 
 	return &action_kit_api.StatusResult{
@@ -266,4 +348,3 @@ func (a *connectionExhaustionAttack) Stop(ctx context.Context, state *Connection
 		}),
 	}, nil
 }
-
