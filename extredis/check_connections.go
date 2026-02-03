@@ -20,14 +20,14 @@ import (
 type connectionCountCheck struct{}
 
 type ConnectionCountCheckState struct {
-	RedisURL          string `json:"redisUrl"`
-	Password          string `json:"password"`
-	DB                int    `json:"db"`
-	MaxConnections    int    `json:"maxConnections"`
+	RedisURL          string  `json:"redisUrl"`
+	Password          string  `json:"password"`
+	DB                int     `json:"db"`
+	MaxConnections    int     `json:"maxConnections"`
 	MaxConnectionsPct float64 `json:"maxConnectionsPct"`
-	EndTime           int64  `json:"endTime"`
-	ThresholdExceeded bool   `json:"thresholdExceeded"`
-	MaxObserved       int    `json:"maxObserved"`
+	EndTime           int64   `json:"endTime"`
+	ThresholdExceeded bool    `json:"thresholdExceeded"`
+	MaxObserved       int     `json:"maxObserved"`
 }
 
 var _ action_kit_sdk.Action[ConnectionCountCheckState] = (*connectionCountCheck)(nil)

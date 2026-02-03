@@ -23,19 +23,19 @@ import (
 type bigKeyAttack struct{}
 
 type BigKeyState struct {
-	RedisURL       string   `json:"redisUrl"`
-	Password       string   `json:"password"`
-	DB             int      `json:"db"`
-	KeyPrefix      string   `json:"keyPrefix"`
-	KeySize        int      `json:"keySize"` // Size in bytes
-	NumKeys        int      `json:"numKeys"`
-	CreatedKeys    []string `json:"createdKeys"`
-	EndTime        int64    `json:"endTime"`
-	ExecutionId    string   `json:"executionId"`
-	CycleCount     int      `json:"cycleCount"`
-	TotalCreated   int      `json:"totalCreated"`
-	TotalDeleted   int      `json:"totalDeleted"`
-	LastError      string   `json:"lastError"`
+	RedisURL     string   `json:"redisUrl"`
+	Password     string   `json:"password"`
+	DB           int      `json:"db"`
+	KeyPrefix    string   `json:"keyPrefix"`
+	KeySize      int      `json:"keySize"` // Size in bytes
+	NumKeys      int      `json:"numKeys"`
+	CreatedKeys  []string `json:"createdKeys"`
+	EndTime      int64    `json:"endTime"`
+	ExecutionId  string   `json:"executionId"`
+	CycleCount   int      `json:"cycleCount"`
+	TotalCreated int      `json:"totalCreated"`
+	TotalDeleted int      `json:"totalDeleted"`
+	LastError    string   `json:"lastError"`
 }
 
 // Track running attacks for background goroutines
@@ -444,7 +444,7 @@ func (a *bigKeyAttack) Stop(ctx context.Context, state *BigKeyState) (*action_ki
 	return &action_kit_api.StopResult{
 		Messages: extutil.Ptr([]action_kit_api.Message{
 			{
-				Level:   extutil.Ptr(action_kit_api.Info),
+				Level: extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Big key attack completed: %d cycles, %d keys created, %d keys deleted (%d MB each). Cleaned up %d remaining keys.",
 					cycleCount, totalCreated, totalDeleted, keySizeMB, cleanedUp),
 			},

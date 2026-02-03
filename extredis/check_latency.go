@@ -224,8 +224,8 @@ func (a *latencyCheck) Status(ctx context.Context, state *LatencyCheckState) (*a
 		{
 			Name: extutil.Ptr("redis_latency_ms"),
 			Metric: map[string]string{
-				"redis.host":                    state.RedisURL,
-				"latency_constraint_fulfilled":  fmt.Sprintf("%t", latencyMs <= state.MaxLatencyMs),
+				"redis.host":                   state.RedisURL,
+				"latency_constraint_fulfilled": fmt.Sprintf("%t", latencyMs <= state.MaxLatencyMs),
 			},
 			Value:     latencyMs,
 			Timestamp: now,

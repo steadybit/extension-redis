@@ -22,14 +22,14 @@ import (
 type memoryFillAttack struct{}
 
 type MemoryFillState struct {
-	RedisURL   string   `json:"redisUrl"`
-	Password   string   `json:"password"`
-	DB         int      `json:"db"`
-	KeyPrefix  string   `json:"keyPrefix"`
-	ValueSize  int      `json:"valueSize"`
-	FillRate   int      `json:"fillRate"` // MB per second
-	MaxMemory  int      `json:"maxMemory"`
-	EndTime    int64    `json:"endTime"`
+	RedisURL    string   `json:"redisUrl"`
+	Password    string   `json:"password"`
+	DB          int      `json:"db"`
+	KeyPrefix   string   `json:"keyPrefix"`
+	ValueSize   int      `json:"valueSize"`
+	FillRate    int      `json:"fillRate"` // MB per second
+	MaxMemory   int      `json:"maxMemory"`
+	EndTime     int64    `json:"endTime"`
 	CreatedKeys []string `json:"createdKeys"`
 }
 
@@ -278,4 +278,3 @@ func (a *memoryFillAttack) Stop(ctx context.Context, state *MemoryFillState) (*a
 		}),
 	}, nil
 }
-

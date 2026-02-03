@@ -211,7 +211,7 @@ func (a *blockedClientsCheck) Status(ctx context.Context, state *BlockedClientsC
 		{
 			Name: extutil.Ptr("redis_blocked_clients"),
 			Metric: map[string]string{
-				"redis.host":                 state.RedisURL,
+				"redis.host":                   state.RedisURL,
 				"blocked_constraint_fulfilled": fmt.Sprintf("%t", blockedClients <= state.MaxBlockedClients),
 			},
 			Value:     float64(blockedClients),

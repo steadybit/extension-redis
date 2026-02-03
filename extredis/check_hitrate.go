@@ -258,7 +258,7 @@ func (a *cacheHitRateCheck) Status(ctx context.Context, state *CacheHitRateCheck
 		{
 			Name: extutil.Ptr("redis_cache_hit_rate"),
 			Metric: map[string]string{
-				"redis.host":                  state.RedisURL,
+				"redis.host":                   state.RedisURL,
 				"hitrate_constraint_fulfilled": fmt.Sprintf("%t", hitRate >= state.MinHitRate),
 			},
 			Value:     hitRate,
