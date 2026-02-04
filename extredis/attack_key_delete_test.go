@@ -5,8 +5,11 @@ package extredis
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
@@ -165,4 +168,152 @@ func TestKeyDeleteAttack_Prepare_DefaultDB(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 0, state.DB)
 	assert.False(t, state.RestoreOnStop)
+}
+
+func TestKeyDeleteAttack_StartStatusStop(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Create test keys
+	mr.Set("test:key1", "value1")
+	mr.Set("test:key2", "value2")
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "test:*",
+		MaxKeys:       100,
+		RestoreOnStop: true,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]string),
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When - Start
+	startResult, err := action.Start(context.Background(), &state)
+
+	// Then - Start
+	require.NoError(t, err)
+	require.NotNil(t, startResult)
+	assert.Len(t, state.DeletedKeys, 2)
+
+	// When - Status
+	statusResult, err := action.Status(context.Background(), &state)
+
+	// Then - Status
+	require.NoError(t, err)
+	require.NotNil(t, statusResult)
+
+	// When - Stop (restore keys)
+	stopResult, err := action.Stop(context.Background(), &state)
+
+	// Then - Stop
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// Verify keys are restored
+	val, err := mr.Get("test:key1")
+	require.NoError(t, err)
+	assert.Equal(t, "value1", val)
+}
+
+func TestKeyDeleteAttack_Start_NoMatchingKeys(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "nonexistent:*",
+		MaxKeys:       100,
+		RestoreOnStop: false,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]string),
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Empty(t, state.DeletedKeys)
+}
+
+func TestKeyDeleteAttack_Start_ConnectionError(t *testing.T) {
+	// Given
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:    "redis://nonexistent:6379",
+		DB:          0,
+		Pattern:     "test:*",
+		MaxKeys:     100,
+		DeletedKeys: []string{},
+		BackupData:  make(map[string]string),
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestNewKeyDeleteAttack(t *testing.T) {
+	// When
+	action := NewKeyDeleteAttack()
+
+	// Then
+	require.NotNil(t, action)
+}
+
+func TestKeyDeleteAttack_Status_Completed(t *testing.T) {
+	// Given
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:    "redis://localhost:6379",
+		DB:          0,
+		Pattern:     "test:*",
+		DeletedKeys: []string{"key1"},
+		EndTime:     time.Now().Add(-1 * time.Second).Unix(), // Already expired
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+}
+
+func TestKeyDeleteAttack_Stop_NoKeysToRestore(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "test:*",
+		RestoreOnStop: true,
+		DeletedKeys:   []string{}, // No keys to restore
+		BackupData:    map[string]string{},
+	}
+
+	// When
+	result, err := action.Stop(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
 }

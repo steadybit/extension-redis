@@ -5,8 +5,11 @@ package extredis
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
@@ -139,4 +142,143 @@ func TestGenerateRandomValue_DifferentValues(t *testing.T) {
 
 	// Then - values should be different (with very high probability)
 	assert.NotEqual(t, value1, value2)
+}
+
+func TestMemoryFillAttack_Start(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryFillAttack{}
+	state := MemoryFillState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   "steadybit-memfill-test-",
+		ValueSize:   100,
+		FillRate:    1,
+		MaxMemory:   1,
+		EndTime:     time.Now().Add(1 * time.Second).Unix(),
+		CreatedKeys: []string{},
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Messages)
+	assert.Len(t, *result.Messages, 1)
+}
+
+func TestMemoryFillAttack_Status(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryFillAttack{}
+	state := MemoryFillState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   "steadybit-memfill-test-",
+		ValueSize:   100,
+		FillRate:    1,
+		MaxMemory:   1,
+		EndTime:     time.Now().Add(60 * time.Second).Unix(),
+		CreatedKeys: []string{"key1", "key2"},
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+}
+
+func TestMemoryFillAttack_Stop(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Create some keys to clean up
+	mr.Set("steadybit-memfill-test-0", "value")
+	mr.Set("steadybit-memfill-test-1", "value")
+
+	action := &memoryFillAttack{}
+	state := MemoryFillState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   "steadybit-memfill-test-",
+		CreatedKeys: []string{"steadybit-memfill-test-0", "steadybit-memfill-test-1"},
+	}
+
+	// When
+	result, err := action.Stop(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Messages)
+
+	// Verify keys were deleted
+	exists := mr.Exists("steadybit-memfill-test-0")
+	assert.False(t, exists)
+}
+
+func TestMemoryFillAttack_Start_ConnectionError(t *testing.T) {
+	// Given
+	action := &memoryFillAttack{}
+	state := MemoryFillState{
+		RedisURL:    "redis://nonexistent:6379",
+		DB:          0,
+		KeyPrefix:   "steadybit-memfill-test-",
+		ValueSize:   100,
+		CreatedKeys: []string{},
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestMemoryFillAttack_Status_Completed(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryFillAttack{}
+	state := MemoryFillState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   "steadybit-memfill-test-",
+		ValueSize:   100,
+		FillRate:    1,
+		MaxMemory:   1,
+		EndTime:     time.Now().Add(-1 * time.Second).Unix(), // Already expired
+		CreatedKeys: []string{},
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+}
+
+func TestNewMemoryFillAttack(t *testing.T) {
+	// When
+	action := NewMemoryFillAttack()
+
+	// Then
+	require.NotNil(t, action)
 }

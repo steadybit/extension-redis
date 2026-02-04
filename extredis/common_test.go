@@ -100,3 +100,32 @@ func TestRedisIcon_IsSet(t *testing.T) {
 	assert.NotEmpty(t, redisIcon)
 	assert.Contains(t, redisIcon, "data:image/svg+xml")
 }
+
+func TestFetchTargetsPerEndpoint_SequentialProcessing(t *testing.T) {
+	// Given - endpoints processed sequentially
+	origEndpoints := config.Config.Endpoints
+	defer func() { config.Config.Endpoints = origEndpoints }()
+	config.Config.Endpoints = []config.RedisEndpoint{
+		{URL: "redis://host1:6379", Name: "redis1"},
+	}
+
+	callCount := 0
+	// When
+	targets, err := FetchTargetsPerEndpoint(func(endpoint *config.RedisEndpoint) ([]discovery_kit_api.Target, error) {
+		callCount++
+		return []discovery_kit_api.Target{
+			{Id: endpoint.Name, Label: endpoint.Name},
+		}, nil
+	})
+
+	// Then
+	require.NoError(t, err)
+	assert.Equal(t, 1, callCount)
+	require.Len(t, targets, 1)
+}
+
+func TestAttrConstants_Values(t *testing.T) {
+	// Verify additional attribute constants
+	assert.Equal(t, "redis.name", AttrRedisName)
+	assert.Equal(t, "redis.database.name", AttrDatabaseName)
+}

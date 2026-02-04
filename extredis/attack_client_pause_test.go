@@ -5,9 +5,11 @@ package extredis
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
@@ -152,4 +154,71 @@ func TestClientPauseAttack_NewEmptyState(t *testing.T) {
 
 	// Then
 	assert.Equal(t, ClientPauseState{}, state)
+}
+
+func TestClientPauseAttack_Status(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &clientPauseAttack{}
+	state := ClientPauseState{
+		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:        0,
+		PauseMode: "ALL",
+		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+}
+
+func TestClientPauseAttack_Status_Completed(t *testing.T) {
+	// Given
+	action := &clientPauseAttack{}
+	state := ClientPauseState{
+		RedisURL:  "redis://localhost:6379",
+		DB:        0,
+		PauseMode: "ALL",
+		EndTime:   time.Now().Add(-10 * time.Second).Unix(), // Already past
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+}
+
+func TestClientPauseAttack_Start_ConnectionError(t *testing.T) {
+	// Given
+	action := &clientPauseAttack{}
+	state := ClientPauseState{
+		RedisURL:  "redis://nonexistent:6379",
+		DB:        0,
+		PauseMode: "ALL",
+		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestNewClientPauseAttack(t *testing.T) {
+	// When
+	action := NewClientPauseAttack()
+
+	// Then
+	require.NotNil(t, action)
 }

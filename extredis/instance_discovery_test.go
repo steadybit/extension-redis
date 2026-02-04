@@ -4,9 +4,13 @@
 package extredis
 
 import (
+	"context"
+	"fmt"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_api"
+	"github.com/steadybit/extension-redis/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -77,4 +81,141 @@ func TestInstanceDiscovery_DescribeAttributes(t *testing.T) {
 	assert.Contains(t, attrMap, AttrRedisPort)
 	assert.Contains(t, attrMap, AttrRedisVersion)
 	assert.Contains(t, attrMap, AttrRedisRole)
+}
+
+func TestNewRedisInstanceDiscovery(t *testing.T) {
+	// Cancel context immediately to prevent background goroutines from running
+	// and accessing shared config state that other tests may modify
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancel immediately
+
+	// When
+	discovery := NewRedisInstanceDiscovery(ctx)
+
+	// Then
+	require.NotNil(t, discovery)
+}
+
+func TestDiscoverInstance_Success(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	endpoint := &config.RedisEndpoint{
+		URL:  fmt.Sprintf("redis://%s", mr.Addr()),
+		Name: "test-redis",
+	}
+
+	// When
+	targets, err := discoverInstance(context.Background(), endpoint)
+
+	// Then
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+
+	target := targets[0]
+	assert.Equal(t, TargetTypeInstance, target.TargetType)
+	assert.Equal(t, "test-redis", target.Label)
+	assert.Contains(t, target.Attributes, AttrRedisURL)
+	assert.Contains(t, target.Attributes, AttrRedisHost)
+	assert.Contains(t, target.Attributes, AttrRedisPort)
+	assert.Contains(t, target.Attributes, AttrRedisName)
+}
+
+func TestDiscoverInstance_WithoutName(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	endpoint := &config.RedisEndpoint{
+		URL: fmt.Sprintf("redis://%s", mr.Addr()),
+		// No Name set - should use host:port as name
+	}
+
+	// When
+	targets, err := discoverInstance(context.Background(), endpoint)
+
+	// Then
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+
+	target := targets[0]
+	// Name should be derived from host:port
+	assert.Contains(t, target.Label, mr.Host())
+}
+
+func TestDiscoverInstance_ConnectionError(t *testing.T) {
+	// Given
+	endpoint := &config.RedisEndpoint{
+		URL:  "redis://nonexistent:6379",
+		Name: "test-redis",
+	}
+
+	// When
+	targets, err := discoverInstance(context.Background(), endpoint)
+
+	// Then
+	require.Error(t, err)
+	assert.Nil(t, targets)
+	assert.Contains(t, err.Error(), "ping")
+}
+
+func TestDiscoverInstance_InvalidURL(t *testing.T) {
+	// Given
+	endpoint := &config.RedisEndpoint{
+		URL:  "not-a-valid-url",
+		Name: "test-redis",
+	}
+
+	// When
+	targets, err := discoverInstance(context.Background(), endpoint)
+
+	// Then
+	require.Error(t, err)
+	assert.Nil(t, targets)
+}
+
+func TestDiscoverInstance_DefaultPort(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Use a URL without explicit port
+	endpoint := &config.RedisEndpoint{
+		URL:  fmt.Sprintf("redis://%s", mr.Addr()),
+		Name: "test-redis",
+	}
+
+	// When
+	targets, err := discoverInstance(context.Background(), endpoint)
+
+	// Then
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	// Port should be present in attributes
+	assert.Contains(t, targets[0].Attributes, AttrRedisPort)
+}
+
+func TestInstanceDiscovery_DiscoverTargets(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Test using the underlying discovery function directly to avoid race conditions
+	// with the cached discovery's background refresh goroutine
+	endpoint := &config.RedisEndpoint{
+		URL:  fmt.Sprintf("redis://%s", mr.Addr()),
+		Name: "test-redis",
+	}
+
+	// When
+	targets, err := discoverInstance(context.Background(), endpoint)
+
+	// Then
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
 }

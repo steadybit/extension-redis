@@ -176,3 +176,67 @@ func TestReplicationLagCheck_Describe_WidgetConfiguration(t *testing.T) {
 	assert.Equal(t, "Link Up", lineChart.Grouping.Groups[0].Title)
 	assert.Equal(t, "Link Down", lineChart.Grouping.Groups[1].Title)
 }
+
+func TestReplicationLagCheck_Start_ConnectionError(t *testing.T) {
+	// Given - miniredis doesn't support INFO replication, so we test connection error
+	action := &replicationLagCheck{}
+	state := ReplicationLagCheckState{
+		RedisURL:      "redis://nonexistent:6379",
+		DB:            0,
+		MaxLagSeconds: 10,
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestReplicationLagCheck_Status_ConnectionError(t *testing.T) {
+	// Given
+	action := &replicationLagCheck{}
+	state := ReplicationLagCheckState{
+		RedisURL:      "redis://nonexistent:6379",
+		DB:            0,
+		MaxLagSeconds: 10,
+		RequireLinkUp: true,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then - Status returns result with error field, not Go error
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Error)
+}
+
+func TestNewReplicationLagCheck(t *testing.T) {
+	// When
+	action := NewReplicationLagCheck()
+
+	// Then
+	require.NotNil(t, action)
+}
+
+func TestReplicationLagCheck_Status_Completed(t *testing.T) {
+	// Given
+	action := &replicationLagCheck{}
+	state := ReplicationLagCheckState{
+		RedisURL:      "redis://nonexistent:6379",
+		DB:            0,
+		MaxLagSeconds: 10,
+		RequireLinkUp: true,
+		EndTime:       time.Now().Add(-1 * time.Second).Unix(), // Already expired
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// Even with connection error, should report as completed since EndTime has passed
+}

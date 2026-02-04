@@ -4,8 +4,13 @@
 package clients
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"testing"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/go-redis/redismock/v9"
 	"github.com/steadybit/extension-redis/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -197,4 +202,235 @@ func TestParseRedisURL_CredentialOverrides(t *testing.T) {
 	assert.Equal(t, "my-password", opts.Password)
 	assert.Equal(t, "my-user", opts.Username)
 	assert.Equal(t, 5, opts.DB)
+}
+
+func TestParseRedisURL_InvalidURL(t *testing.T) {
+	// Given
+	endpoint := &config.RedisEndpoint{
+		URL: "not-a-valid-url",
+	}
+
+	// When
+	_, err := parseRedisURL(endpoint)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestCreateRedisClient_InvalidURL(t *testing.T) {
+	// Given
+	endpoint := &config.RedisEndpoint{
+		URL: "invalid://not-valid:xyz",
+	}
+
+	// When
+	_, err := CreateRedisClient(endpoint)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestCreateRedisClientFromURL_InvalidURL(t *testing.T) {
+	// Given - clear endpoints to avoid matching
+	origEndpoints := config.Config.Endpoints
+	defer func() { config.Config.Endpoints = origEndpoints }()
+	config.Config.Endpoints = []config.RedisEndpoint{}
+
+	// When
+	_, err := CreateRedisClientFromURL("invalid://not-valid", "", 0)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestCreateRedisClientFromURL_NegativeDB(t *testing.T) {
+	// Given
+	origEndpoints := config.Config.Endpoints
+	defer func() { config.Config.Endpoints = origEndpoints }()
+	config.Config.Endpoints = []config.RedisEndpoint{}
+
+	// When - negative db should not override
+	client, err := CreateRedisClientFromURL("redis://localhost:6379", "", -1)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, client)
+	defer client.Close()
+}
+
+func TestParseRedisURL_NoCredentialOverride(t *testing.T) {
+	// Given - endpoint without password/username override
+	endpoint := &config.RedisEndpoint{
+		URL: "redis://localhost:6379",
+		DB:  0,
+	}
+
+	// When
+	opts, err := parseRedisURL(endpoint)
+
+	// Then
+	require.NoError(t, err)
+	assert.Equal(t, "", opts.Password)
+	assert.Equal(t, "", opts.Username)
+}
+
+func TestPingRedis_Success(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	endpoint := &config.RedisEndpoint{
+		URL: fmt.Sprintf("redis://%s", mr.Addr()),
+	}
+	client, err := CreateRedisClient(endpoint)
+	require.NoError(t, err)
+	defer client.Close()
+
+	// When
+	err = PingRedis(context.Background(), client)
+
+	// Then
+	require.NoError(t, err)
+}
+
+func TestGetRedisInfo_WithSection(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	endpoint := &config.RedisEndpoint{
+		URL: fmt.Sprintf("redis://%s", mr.Addr()),
+	}
+	client, err := CreateRedisClient(endpoint)
+	require.NoError(t, err)
+	defer client.Close()
+
+	// When - miniredis doesn't support most INFO sections, so test with empty section
+	info, err := GetRedisInfo(context.Background(), client, "")
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, info)
+}
+
+func TestGetRedisInfo_NoSection(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	endpoint := &config.RedisEndpoint{
+		URL: fmt.Sprintf("redis://%s", mr.Addr()),
+	}
+	client, err := CreateRedisClient(endpoint)
+	require.NoError(t, err)
+	defer client.Close()
+
+	// When
+	info, err := GetRedisInfo(context.Background(), client, "")
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, info)
+}
+
+// Mock-based tests using redismock
+
+func TestPingRedis_WithMock_Success(t *testing.T) {
+	// Given
+	client, mock := redismock.NewClientMock()
+	defer client.Close()
+
+	mock.ExpectPing().SetVal("PONG")
+
+	// When
+	err := PingRedis(context.Background(), client)
+
+	// Then
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestPingRedis_WithMock_Error(t *testing.T) {
+	// Given
+	client, mock := redismock.NewClientMock()
+	defer client.Close()
+
+	mock.ExpectPing().SetErr(errors.New("connection refused"))
+
+	// When
+	err := PingRedis(context.Background(), client)
+
+	// Then
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "connection refused")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetRedisInfo_WithMock_WithSection(t *testing.T) {
+	// Given
+	client, mock := redismock.NewClientMock()
+	defer client.Close()
+
+	infoResponse := `# Server
+redis_version:7.0.0
+redis_git_sha1:00000000
+os:Linux 5.4.0 x86_64
+
+# Clients
+connected_clients:10
+blocked_clients:0`
+
+	mock.ExpectInfo("server").SetVal(infoResponse)
+
+	// When
+	info, err := GetRedisInfo(context.Background(), client, "server")
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, info)
+	assert.Equal(t, "7.0.0", info["redis_version"])
+	assert.Equal(t, "10", info["connected_clients"])
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetRedisInfo_WithMock_NoSection(t *testing.T) {
+	// Given
+	client, mock := redismock.NewClientMock()
+	defer client.Close()
+
+	infoResponse := `# Memory
+used_memory:1048576
+used_memory_human:1.00M
+maxmemory:0`
+
+	mock.ExpectInfo().SetVal(infoResponse)
+
+	// When
+	info, err := GetRedisInfo(context.Background(), client, "")
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, info)
+	assert.Equal(t, "1048576", info["used_memory"])
+	assert.Equal(t, "1.00M", info["used_memory_human"])
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestGetRedisInfo_WithMock_Error(t *testing.T) {
+	// Given
+	client, mock := redismock.NewClientMock()
+	defer client.Close()
+
+	mock.ExpectInfo("memory").SetErr(errors.New("connection error"))
+
+	// When
+	info, err := GetRedisInfo(context.Background(), client, "memory")
+
+	// Then
+	require.Error(t, err)
+	assert.Nil(t, info)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

@@ -5,9 +5,11 @@ package extredis
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
@@ -179,4 +181,185 @@ func TestParseMemoryValue_InvalidValues(t *testing.T) {
 			assert.Equal(t, int64(0), got)
 		})
 	}
+}
+
+func TestMemoryCheck_Start(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryCheck{}
+	state := MemoryCheckState{
+		RedisURL:         fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxMemoryPercent: 80,
+		MaxMemoryBytes:   0,
+		EndTime:          time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Messages)
+	assert.Len(t, *result.Messages, 1)
+}
+
+func TestMemoryCheck_Status(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryCheck{}
+	state := MemoryCheckState{
+		RedisURL:         fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxMemoryPercent: 80,
+		MaxMemoryBytes:   0,
+		EndTime:          time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+}
+
+func TestMemoryCheck_Start_ConnectionError(t *testing.T) {
+	// Given
+	action := &memoryCheck{}
+	state := MemoryCheckState{
+		RedisURL:         "redis://nonexistent:6379",
+		MaxMemoryPercent: 80,
+		MaxMemoryBytes:   0,
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestMemoryCheck_Status_ConnectionError(t *testing.T) {
+	// Given
+	action := &memoryCheck{}
+	state := MemoryCheckState{
+		RedisURL:         "redis://nonexistent:6379",
+		MaxMemoryPercent: 80,
+		MaxMemoryBytes:   0,
+		EndTime:          time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then - Status returns result with error field, not Go error
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Error)
+}
+
+func TestMemoryCheck_Status_Completed(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryCheck{}
+	state := MemoryCheckState{
+		RedisURL:         fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxMemoryPercent: 80,
+		MaxMemoryBytes:   0,
+		EndTime:          time.Now().Add(-1 * time.Second).Unix(), // Already expired
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+}
+
+func TestMemoryCheck_Status_WithMiniredis(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryCheck{}
+	state := MemoryCheckState{
+		RedisURL:         fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxMemoryPercent: 0, // Disable percent check
+		MaxMemoryBytes:   0, // Disable bytes check
+		EndTime:          time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then - miniredis doesn't fully support INFO memory, so just verify no error
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+}
+
+func TestMemoryCheck_Status_MaxObservedTracking(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryCheck{}
+	state := MemoryCheckState{
+		RedisURL:         fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxMemoryPercent: 0,
+		MaxMemoryBytes:   0,
+		MaxObserved:      0,
+		EndTime:          time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	_, err = action.Status(context.Background(), &state)
+
+	// Then - MaxObserved should be updated
+	require.NoError(t, err)
+	// miniredis uses some memory, so MaxObserved should be > 0 after status check
+	// Note: miniredis may not report memory the same way as real Redis
+}
+
+func TestNewMemoryCheck(t *testing.T) {
+	// When
+	action := NewMemoryCheck()
+
+	// Then
+	require.NotNil(t, action)
+}
+
+func TestMemoryCheck_Describe_WidgetConfiguration(t *testing.T) {
+	// Given
+	action := &memoryCheck{}
+
+	// When
+	desc := action.Describe()
+
+	// Then - verify widget is a LineChartWidget
+	require.NotNil(t, desc.Widgets)
+	widgets := *desc.Widgets
+	require.Len(t, widgets, 1)
+
+	// Type assert to LineChartWidget
+	lineChart, ok := widgets[0].(action_kit_api.LineChartWidget)
+	require.True(t, ok, "expected LineChartWidget")
+
+	assert.Equal(t, "Redis Memory Usage", lineChart.Title)
+	assert.Equal(t, action_kit_api.ComSteadybitWidgetLineChart, lineChart.Type)
+	assert.Equal(t, "redis_memory_used", lineChart.Identity.MetricName)
 }

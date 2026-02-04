@@ -5,9 +5,11 @@ package extredis
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
@@ -240,4 +242,119 @@ func TestParseIntValue(t *testing.T) {
 			assert.Equal(t, tt.expected, result)
 		})
 	}
+}
+
+func TestConnectionCountCheck_Start(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionCountCheck{}
+	state := ConnectionCountCheckState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		MaxConnectionsPct: 80,
+		MaxConnections:    100,
+		EndTime:           time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+func TestConnectionCountCheck_Status(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionCountCheck{}
+	state := ConnectionCountCheckState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		MaxConnectionsPct: 80,
+		MaxConnections:    100,
+		EndTime:           time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+	require.NotNil(t, result.Metrics)
+}
+
+func TestConnectionCountCheck_Start_ConnectionError(t *testing.T) {
+	// Given
+	action := &connectionCountCheck{}
+	state := ConnectionCountCheckState{
+		RedisURL:          "redis://nonexistent:6379",
+		DB:                0,
+		MaxConnectionsPct: 80,
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestNewConnectionCountCheck(t *testing.T) {
+	// When
+	action := NewConnectionCountCheck()
+
+	// Then
+	require.NotNil(t, action)
+}
+
+func TestConnectionCountCheck_Status_Completed(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionCountCheck{}
+	state := ConnectionCountCheckState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		MaxConnectionsPct: 80,
+		MaxConnections:    100,
+		EndTime:           time.Now().Add(-1 * time.Second).Unix(), // Already expired
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+}
+
+func TestConnectionCountCheck_Status_ConnectionError(t *testing.T) {
+	// Given
+	action := &connectionCountCheck{}
+	state := ConnectionCountCheckState{
+		RedisURL:          "redis://nonexistent:6379",
+		DB:                0,
+		MaxConnectionsPct: 80,
+		EndTime:           time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then - Status returns result with error field, not Go error
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Error)
 }

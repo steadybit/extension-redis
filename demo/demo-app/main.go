@@ -36,14 +36,14 @@ var (
 )
 
 type Statistics struct {
-	TotalRequests  int64 `json:"total_requests"`
-	CacheHits      int64 `json:"cache_hits"`
-	CacheMisses    int64 `json:"cache_misses"`
-	Errors         int64 `json:"errors"`
-	AvgLatencyMs   int64 `json:"avg_latency_ms"`
-	latencySum     int64
-	latencyCount   int64
-	mu             sync.Mutex
+	TotalRequests int64 `json:"total_requests"`
+	CacheHits     int64 `json:"cache_hits"`
+	CacheMisses   int64 `json:"cache_misses"`
+	Errors        int64 `json:"errors"`
+	AvgLatencyMs  int64 `json:"avg_latency_ms"`
+	latencySum    int64
+	latencyCount  int64
+	mu            sync.Mutex
 }
 
 func (s *Statistics) RecordRequest(hit bool, latencyMs int64, err bool) {
@@ -115,12 +115,12 @@ func runAppServer() {
 
 	http.HandleFunc("/health", healthHandler)
 	http.HandleFunc("/stats", statsHandler)
-	http.HandleFunc("/user/", userHandler)           // User profile cache
-	http.HandleFunc("/product/", productHandler)     // Product catalog cache
-	http.HandleFunc("/session/", sessionHandler)     // Session management
-	http.HandleFunc("/rate-limit/", rateLimitHandler) // Rate limiting
+	http.HandleFunc("/user/", userHandler)              // User profile cache
+	http.HandleFunc("/product/", productHandler)        // Product catalog cache
+	http.HandleFunc("/session/", sessionHandler)        // Session management
+	http.HandleFunc("/rate-limit/", rateLimitHandler)   // Rate limiting
 	http.HandleFunc("/leaderboard", leaderboardHandler) // Leaderboard
-	http.HandleFunc("/counter/", counterHandler)     // Distributed counter
+	http.HandleFunc("/counter/", counterHandler)        // Distributed counter
 
 	log.Printf("Demo app listening on port %s", port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
@@ -133,10 +133,10 @@ func seedData() {
 	for i := 1; i <= 100; i++ {
 		key := fmt.Sprintf("user:%d", i)
 		data := map[string]interface{}{
-			"id":       i,
-			"name":     fmt.Sprintf("User %d", i),
-			"email":    fmt.Sprintf("user%d@example.com", i),
-			"created":  time.Now().Add(-time.Duration(rand.Intn(365)) * 24 * time.Hour).Format(time.RFC3339),
+			"id":      i,
+			"name":    fmt.Sprintf("User %d", i),
+			"email":   fmt.Sprintf("user%d@example.com", i),
+			"created": time.Now().Add(-time.Duration(rand.Intn(365)) * 24 * time.Hour).Format(time.RFC3339),
 		}
 		jsonData, _ := json.Marshal(data)
 		redisClient.Set(ctx, key, jsonData, 1*time.Hour)
@@ -146,11 +146,11 @@ func seedData() {
 	for i := 1; i <= 50; i++ {
 		key := fmt.Sprintf("product:%d", i)
 		data := map[string]interface{}{
-			"id":          i,
-			"name":        fmt.Sprintf("Product %d", i),
-			"price":       rand.Float64() * 100,
-			"stock":       rand.Intn(1000),
-			"category":    []string{"electronics", "clothing", "books", "home"}[rand.Intn(4)],
+			"id":       i,
+			"name":     fmt.Sprintf("Product %d", i),
+			"price":    rand.Float64() * 100,
+			"stock":    rand.Intn(1000),
+			"category": []string{"electronics", "clothing", "books", "home"}[rand.Intn(4)],
 		}
 		jsonData, _ := json.Marshal(data)
 		redisClient.Set(ctx, key, jsonData, 30*time.Minute)

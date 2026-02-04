@@ -83,3 +83,27 @@ func TestBgsaveAttack_NewEmptyState(t *testing.T) {
 	// Then
 	assert.Equal(t, BgsaveState{}, state)
 }
+
+func TestBgsaveAttack_Start_ConnectionError(t *testing.T) {
+	// Note: miniredis doesn't support LASTSAVE command, so we test connection error case
+	// The actual Start functionality would need integration tests with real Redis
+	action := &bgsaveAttack{}
+	state := BgsaveState{
+		RedisURL: "redis://nonexistent:6379",
+		DB:       0,
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then - expect connection error
+	require.Error(t, err)
+}
+
+func TestNewBgsaveAttack(t *testing.T) {
+	// When
+	action := NewBgsaveAttack()
+
+	// Then
+	require.NotNil(t, action)
+}

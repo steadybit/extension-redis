@@ -5,9 +5,11 @@ package extredis
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
@@ -158,4 +160,119 @@ func TestMaxmemoryLimitAttack_NewEmptyState(t *testing.T) {
 
 	// Then
 	assert.Equal(t, MaxmemoryLimitState{}, state)
+}
+
+func TestMaxmemoryLimitAttack_Status(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:     fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:           0,
+		NewMaxmemory: "10mb",
+		NewPolicy:    "noeviction",
+		EndTime:      time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+}
+
+func TestMaxmemoryLimitAttack_Status_Completed(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:     fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:           0,
+		NewMaxmemory: "10mb",
+		NewPolicy:    "noeviction",
+		EndTime:      time.Now().Add(-10 * time.Second).Unix(), // Already past
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+}
+
+func TestMaxmemoryLimitAttack_Start_ConnectionError(t *testing.T) {
+	// Given
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:     "redis://nonexistent:6379",
+		DB:           0,
+		NewMaxmemory: "10mb",
+		NewPolicy:    "noeviction",
+		EndTime:      time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestMaxmemoryLimitAttack_Stop_WithRestoreErrors(t *testing.T) {
+	// Given - connection fails during ConfigSet, not during client creation
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:          "redis://nonexistent:6379",
+		DB:                0,
+		OriginalMaxmemory: "0",
+		OriginalPolicy:    "noeviction",
+	}
+
+	// When
+	result, err := action.Stop(context.Background(), &state)
+
+	// Then - Stop returns result with warning messages (doesn't return error)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Messages)
+}
+
+func TestNewMaxmemoryLimitAttack(t *testing.T) {
+	// When
+	action := NewMaxmemoryLimitAttack()
+
+	// Then
+	require.NotNil(t, action)
+}
+
+func TestMaxmemoryLimitAttack_Stop_Success(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		OriginalMaxmemory: "0",
+		OriginalPolicy:    "noeviction",
+	}
+
+	// When
+	result, err := action.Stop(context.Background(), &state)
+
+	// Then - miniredis doesn't support CONFIG SET, so this will have warnings
+	require.NoError(t, err)
+	require.NotNil(t, result)
 }

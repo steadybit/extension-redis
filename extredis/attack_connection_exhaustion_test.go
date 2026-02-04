@@ -5,8 +5,11 @@ package extredis
 
 import (
 	"context"
+	"fmt"
 	"testing"
+	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
@@ -116,4 +119,134 @@ func TestConnectionExhaustionAttack_NewEmptyState(t *testing.T) {
 func TestActiveConnections_MapInitialized(t *testing.T) {
 	// Verify the global map is initialized
 	assert.NotNil(t, activeConnections)
+}
+
+func TestConnectionExhaustionAttack_Start(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionExhaustionAttack{}
+	state := ConnectionExhaustionState{
+		RedisURL:       fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:             0,
+		NumConnections: 5,
+		EndTime:        time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Greater(t, state.ConnectionCount, 0)
+
+	// Clean up
+	_, _ = action.Stop(context.Background(), &state)
+}
+
+func TestConnectionExhaustionAttack_Status(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionExhaustionAttack{}
+	state := ConnectionExhaustionState{
+		RedisURL:        fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:              0,
+		NumConnections:  5,
+		EndTime:         time.Now().Add(60 * time.Second).Unix(),
+		ConnectionCount: 3,
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+}
+
+func TestConnectionExhaustionAttack_Stop(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionExhaustionAttack{}
+	state := ConnectionExhaustionState{
+		RedisURL:       fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:             0,
+		NumConnections: 3,
+		EndTime:        time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// Start first to create connections
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	// When
+	result, err := action.Stop(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.NotNil(t, result.Messages)
+}
+
+func TestConnectionExhaustionAttack_Start_ConnectionError(t *testing.T) {
+	// Given
+	action := &connectionExhaustionAttack{}
+	state := ConnectionExhaustionState{
+		RedisURL:       "redis://nonexistent:6379",
+		DB:             0,
+		NumConnections: 5,
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestNewConnectionExhaustionAttack(t *testing.T) {
+	// When
+	action := NewConnectionExhaustionAttack()
+
+	// Then
+	require.NotNil(t, action)
+}
+
+func TestCreateSingleConnectionClient(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	url := fmt.Sprintf("redis://%s", mr.Addr())
+
+	// When
+	client, err := createSingleConnectionClient(url, 0)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, client)
+	defer client.Close()
+
+	// Ping to establish connection
+	err = client.Ping(context.Background()).Err()
+	require.NoError(t, err)
+}
+
+func TestCreateSingleConnectionClient_InvalidURL(t *testing.T) {
+	// When
+	_, err := createSingleConnectionClient("invalid://not-valid", 0)
+
+	// Then
+	require.Error(t, err)
 }

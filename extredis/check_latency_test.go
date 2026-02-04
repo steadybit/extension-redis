@@ -5,9 +5,11 @@ package extredis
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
@@ -144,4 +146,112 @@ func TestLatencyCheck_Describe_WidgetConfiguration(t *testing.T) {
 	require.Len(t, lineChart.Grouping.Groups, 2)
 	assert.Equal(t, "Under Threshold", lineChart.Grouping.Groups[0].Title)
 	assert.Equal(t, "Threshold Violated", lineChart.Grouping.Groups[1].Title)
+}
+
+func TestLatencyCheck_Start(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &latencyCheck{}
+	state := LatencyCheckState{
+		RedisURL:     fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxLatencyMs: 100,
+		EndTime:      time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+func TestLatencyCheck_Status(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &latencyCheck{}
+	state := LatencyCheckState{
+		RedisURL:     fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxLatencyMs: 100,
+		EndTime:      time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+	require.NotNil(t, result.Metrics)
+}
+
+func TestLatencyCheck_Start_ConnectionError(t *testing.T) {
+	// Given
+	action := &latencyCheck{}
+	state := LatencyCheckState{
+		RedisURL:     "redis://nonexistent:6379",
+		MaxLatencyMs: 100,
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestNewLatencyCheck(t *testing.T) {
+	// When
+	action := NewLatencyCheck()
+
+	// Then
+	require.NotNil(t, action)
+}
+
+func TestLatencyCheck_Status_Completed(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &latencyCheck{}
+	state := LatencyCheckState{
+		RedisURL:     fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxLatencyMs: 100,
+		EndTime:      time.Now().Add(-1 * time.Second).Unix(), // Already expired
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+}
+
+func TestLatencyCheck_Status_ConnectionError(t *testing.T) {
+	// Given
+	action := &latencyCheck{}
+	state := LatencyCheckState{
+		RedisURL:     "redis://nonexistent:6379",
+		MaxLatencyMs: 100,
+		EndTime:      time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then - Status may return either error field or warning message
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// The connection will fail on ping, resulting in either Error or Messages
+	assert.True(t, result.Error != nil || result.Messages != nil)
 }

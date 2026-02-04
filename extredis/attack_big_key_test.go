@@ -5,9 +5,11 @@ package extredis
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
@@ -150,4 +152,76 @@ func TestGenerateBigValue(t *testing.T) {
 	for _, c := range value {
 		assert.True(t, (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'))
 	}
+}
+
+func TestBigKeyAttack_StartStatusStop(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &bigKeyAttack{}
+	executionId := uuid.New().String()[:8]
+	state := BigKeyState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   fmt.Sprintf("steadybit-bigkey-%s-", executionId),
+		KeySize:     1024, // 1KB for faster test
+		NumKeys:     1,
+		CreatedKeys: []string{},
+		EndTime:     time.Now().Add(2 * time.Second).Unix(),
+		ExecutionId: executionId,
+	}
+
+	// When - Start
+	startResult, err := action.Start(context.Background(), &state)
+
+	// Then - Start
+	require.NoError(t, err)
+	require.NotNil(t, startResult)
+
+	// Wait a bit for the goroutine to create keys
+	time.Sleep(100 * time.Millisecond)
+
+	// When - Status
+	statusResult, err := action.Status(context.Background(), &state)
+
+	// Then - Status
+	require.NoError(t, err)
+	require.NotNil(t, statusResult)
+	assert.False(t, statusResult.Completed) // Should not be completed yet
+
+	// When - Stop
+	stopResult, err := action.Stop(context.Background(), &state)
+
+	// Then - Stop
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+}
+
+func TestBigKeyAttack_Start_ConnectionError(t *testing.T) {
+	// Given
+	action := &bigKeyAttack{}
+	state := BigKeyState{
+		RedisURL:    "redis://nonexistent:6379",
+		DB:          0,
+		KeyPrefix:   "test-",
+		KeySize:     1024,
+		NumKeys:     1,
+		ExecutionId: "test",
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestNewBigKeyAttack(t *testing.T) {
+	// When
+	action := NewBigKeyAttack()
+
+	// Then
+	require.NotNil(t, action)
 }

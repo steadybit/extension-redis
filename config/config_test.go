@@ -98,3 +98,51 @@ func TestMaskURL(t *testing.T) {
 	url := "redis://localhost:6379"
 	assert.Equal(t, url, maskURL(url))
 }
+
+func TestRedisEndpoint_Fields(t *testing.T) {
+	// Test that RedisEndpoint struct has expected fields
+	endpoint := RedisEndpoint{
+		URL:                "redis://localhost:6379",
+		Password:           "secret",
+		Username:           "admin",
+		DB:                 5,
+		InsecureSkipVerify: true,
+		Name:               "test-redis",
+	}
+
+	assert.Equal(t, "redis://localhost:6379", endpoint.URL)
+	assert.Equal(t, "secret", endpoint.Password)
+	assert.Equal(t, "admin", endpoint.Username)
+	assert.Equal(t, 5, endpoint.DB)
+	assert.True(t, endpoint.InsecureSkipVerify)
+	assert.Equal(t, "test-redis", endpoint.Name)
+}
+
+func TestSpecification_DefaultValues(t *testing.T) {
+	// Test default values in Specification
+	spec := Specification{
+		DiscoveryIntervalInstanceSeconds: 30,
+		DiscoveryIntervalDatabaseSeconds: 60,
+	}
+
+	assert.Equal(t, 30, spec.DiscoveryIntervalInstanceSeconds)
+	assert.Equal(t, 60, spec.DiscoveryIntervalDatabaseSeconds)
+	assert.Empty(t, spec.DiscoveryAttributesExcludesInstances)
+	assert.Empty(t, spec.DiscoveryAttributesExcludesDatabases)
+}
+
+func TestGetEndpointByURL_MultipleMatches(t *testing.T) {
+	// Given - multiple endpoints, should return first exact match
+	Config.Endpoints = []RedisEndpoint{
+		{URL: "redis://a.local:6379", Name: "a"},
+		{URL: "redis://b.local:6379", Name: "b"},
+		{URL: "redis://c.local:6379", Name: "c"},
+	}
+
+	// When
+	ep := GetEndpointByURL("redis://b.local:6379")
+
+	// Then
+	assert.NotNil(t, ep)
+	assert.Equal(t, "b", ep.Name)
+}
