@@ -36,7 +36,7 @@ RUN make licenses-report
 ##
 ## Runtime
 ##
-FROM alpine:3.23
+FROM alpine:3.19
 
 ARG VERSION=unknown
 ARG REVISION=unknown
@@ -59,5 +59,6 @@ COPY --from=build /app/extension /extension
 COPY --from=build /app/licenses /licenses
 
 EXPOSE 8083
+EXPOSE 8084
 
 ENTRYPOINT ["/extension"]
