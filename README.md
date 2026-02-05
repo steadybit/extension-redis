@@ -53,8 +53,6 @@ Discovers Redis instances and exposes attributes like:
 - `redis.version` - Redis version
 - `redis.role` - Instance role (master/replica)
 - `redis.cluster.enabled` - Cluster mode status
-- `redis.memory.used_bytes` - Current memory usage
-- `redis.connected_clients` - Connected client count
 
 ### Redis Database
 
