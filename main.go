@@ -6,7 +6,6 @@ package main
 
 import (
 	"context"
-	_ "net/http/pprof"
 	"os/signal"
 	"syscall"
 
