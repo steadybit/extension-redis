@@ -68,11 +68,6 @@ resources:
     cpu: "200m"
     ephemeral-storage: "1Gi"
 
-# Service configuration
-service:
-  type: ClusterIP
-  port: 8083
-
 # Probes
 probes:
   readiness:
