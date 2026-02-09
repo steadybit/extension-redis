@@ -7,6 +7,7 @@ package extredis
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
@@ -23,6 +24,15 @@ type BgsaveState struct {
 	Password       string `json:"password"`
 	DB             int    `json:"db"`
 	LastSaveBefore int64  `json:"lastSaveBefore"`
+	IsElastiCache  bool   `json:"isElastiCache"`
+}
+
+// isElastiCacheHost checks if the host appears to be an AWS ElastiCache instance
+func isElastiCacheHost(host string) bool {
+	host = strings.ToLower(host)
+	return strings.Contains(host, ".cache.amazonaws.com") ||
+		strings.Contains(host, ".elasticache.") ||
+		strings.Contains(host, "elasticache")
 }
 
 var _ action_kit_sdk.Action[BgsaveState] = (*bgsaveAttack)(nil)
@@ -64,6 +74,12 @@ func (a *bgsaveAttack) Prepare(ctx context.Context, state *BgsaveState, request 
 	redisURL := request.Target.Attributes[AttrRedisURL]
 	if len(redisURL) == 0 {
 		return nil, fmt.Errorf("redis URL not found in target attributes")
+	}
+
+	// Check if this is an ElastiCache instance based on hostname
+	redisHost := request.Target.Attributes[AttrRedisHost]
+	if len(redisHost) > 0 {
+		state.IsElastiCache = isElastiCacheHost(redisHost[0])
 	}
 
 	state.RedisURL = redisURL[0]
@@ -123,6 +139,22 @@ func (a *bgsaveAttack) Start(ctx context.Context, state *BgsaveState) (*action_k
 				}),
 			}, nil
 		}
+
+		// Check if the command is disabled (common on managed Redis services)
+		errStr := strings.ToLower(err.Error())
+		if strings.Contains(errStr, "unknown command") || strings.Contains(errStr, "command not allowed") {
+			errMsg := "BGSAVE command is disabled on this Redis instance."
+			if state.IsElastiCache {
+				errMsg += " AWS ElastiCache disables administrative commands like BGSAVE, BGREWRITEAOF, SAVE, CONFIG, and DEBUG. " +
+					"Backups on ElastiCache are managed through AWS snapshots instead. " +
+					"Use 'aws elasticache create-snapshot' or the AWS Console to trigger backups."
+			} else {
+				errMsg += " This is common on managed Redis services (AWS ElastiCache, Azure Cache, GCP Memorystore) " +
+					"where the provider manages persistence. Check your provider's documentation for backup options."
+			}
+			return nil, fmt.Errorf("%s Original error: %w", errMsg, err)
+		}
+
 		return nil, fmt.Errorf("failed to trigger BGSAVE: %w", err)
 	}
 
