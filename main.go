@@ -50,6 +50,8 @@ func main() {
 	action_kit_sdk.RegisterAction(extredis.NewCacheExpirationAttack())
 	action_kit_sdk.RegisterAction(extredis.NewBigKeyAttack())
 	action_kit_sdk.RegisterAction(extredis.NewBgsaveAttack())
+	action_kit_sdk.RegisterAction(extredis.NewCachePenetrationAttack())
+	action_kit_sdk.RegisterAction(extredis.NewSentinelStopAttack())
 	action_kit_sdk.RegisterAction(extredis.NewMemoryCheck())
 	action_kit_sdk.RegisterAction(extredis.NewLatencyCheck())
 	action_kit_sdk.RegisterAction(extredis.NewConnectionCountCheck())

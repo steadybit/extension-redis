@@ -485,3 +485,79 @@ func TestMock_Scan_EmptyResult(t *testing.T) {
 	assert.Equal(t, uint64(0), cursor)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestMock_CachePenetration_GetNonExistingKey(t *testing.T) {
+	// Given
+	client, mock := redismock.NewClientMock()
+	defer client.Close()
+
+	mock.ExpectGet("steadybit-penetration-miss-key1").RedisNil()
+	mock.ExpectGet("steadybit-penetration-miss-key2").RedisNil()
+	mock.ExpectGet("steadybit-penetration-miss-key3").RedisNil()
+
+	// When
+	ctx := context.Background()
+	for _, key := range []string{"steadybit-penetration-miss-key1", "steadybit-penetration-miss-key2", "steadybit-penetration-miss-key3"} {
+		_, err := client.Get(ctx, key).Result()
+		// redis.Nil is expected for non-existing keys
+		assert.Error(t, err)
+	}
+
+	// Then
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMock_SentinelStop_InfoServer(t *testing.T) {
+	// Given
+	client, mock := redismock.NewClientMock()
+	defer client.Close()
+
+	serverInfo := `# Server
+redis_version:7.0.0
+redis_mode:sentinel
+os:Linux`
+
+	mock.ExpectInfo("server").SetVal(serverInfo)
+
+	// When
+	ctx := context.Background()
+	result, err := client.Info(ctx, "server").Result()
+
+	// Then
+	require.NoError(t, err)
+	assert.Contains(t, result, "redis_mode:sentinel")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMock_SentinelStop_DebugSleep(t *testing.T) {
+	// Given
+	client, mock := redismock.NewClientMock()
+	defer client.Close()
+
+	mock.ExpectDo("DEBUG", "SLEEP", int64(30)).SetVal("OK")
+
+	// When
+	ctx := context.Background()
+	err := client.Do(ctx, "DEBUG", "SLEEP", int64(30)).Err()
+
+	// Then
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestMock_SentinelStop_DebugSleep_Error(t *testing.T) {
+	// Given
+	client, mock := redismock.NewClientMock()
+	defer client.Close()
+
+	mock.ExpectDo("DEBUG", "SLEEP", int64(30)).SetErr(errors.New("ERR DEBUG command not allowed"))
+
+	// When
+	ctx := context.Background()
+	err := client.Do(ctx, "DEBUG", "SLEEP", int64(30)).Err()
+
+	// Then
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "DEBUG command not allowed")
+	require.NoError(t, mock.ExpectationsWereMet())
+}
