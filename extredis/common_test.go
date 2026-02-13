@@ -24,7 +24,6 @@ func TestConstants(t *testing.T) {
 	assert.Equal(t, "redis.version", AttrRedisVersion)
 	assert.Equal(t, "redis.role", AttrRedisRole)
 	assert.Equal(t, "redis.database.index", AttrDatabaseIndex)
-	assert.Equal(t, "redis.database.keys", AttrDatabaseKeys)
 }
 
 func TestFetchTargetsPerEndpoint_EmptyEndpoints(t *testing.T) {

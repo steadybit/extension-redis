@@ -7,6 +7,11 @@ package extredis
 import (
 	"context"
 	"fmt"
+	"net/url"
+	"regexp"
+	"strconv"
+	"time"
+
 	"github.com/rs/zerolog/log"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_api"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_sdk"
@@ -14,10 +19,6 @@ import (
 	"github.com/steadybit/extension-kit/extutil"
 	"github.com/steadybit/extension-redis/clients"
 	"github.com/steadybit/extension-redis/config"
-	"net/url"
-	"regexp"
-	"strconv"
-	"time"
 )
 
 type redisDatabaseDiscovery struct{}
@@ -55,7 +56,6 @@ func (d *redisDatabaseDiscovery) DescribeTarget() discovery_kit_api.TargetDescri
 			Columns: []discovery_kit_api.Column{
 				{Attribute: AttrRedisHost},
 				{Attribute: AttrDatabaseIndex},
-				{Attribute: AttrDatabaseKeys},
 			},
 			OrderBy: []discovery_kit_api.OrderBy{
 				{Attribute: AttrRedisHost, Direction: "ASC"},
@@ -70,10 +70,6 @@ func (d *redisDatabaseDiscovery) DescribeAttributes() []discovery_kit_api.Attrib
 		{
 			Attribute: AttrDatabaseIndex,
 			Label:     discovery_kit_api.PluralLabel{One: "Database index", Other: "Database indices"},
-		},
-		{
-			Attribute: AttrDatabaseKeys,
-			Label:     discovery_kit_api.PluralLabel{One: "Key count", Other: "Key counts"},
 		},
 		{
 			Attribute: AttrDatabaseName,
@@ -130,9 +126,8 @@ func discoverDatabases(ctx context.Context, endpoint *config.RedisEndpoint) ([]d
 	// Parse keyspace info to find databases
 	// Format: db0:keys=1,expires=0,avg_ttl=0
 	dbPattern := regexp.MustCompile(`^db(\d+)$`)
-	keysPattern := regexp.MustCompile(`keys=(\d+)`)
 
-	for key, value := range keyspaceInfo {
+	for key := range keyspaceInfo {
 		matches := dbPattern.FindStringSubmatch(key)
 		if len(matches) != 2 {
 			continue
@@ -140,13 +135,6 @@ func discoverDatabases(ctx context.Context, endpoint *config.RedisEndpoint) ([]d
 
 		dbIndex := matches[1]
 		dbIndexInt, _ := strconv.Atoi(dbIndex)
-
-		// Parse key count
-		keyCount := "0"
-		keysMatches := keysPattern.FindStringSubmatch(value)
-		if len(keysMatches) == 2 {
-			keyCount = keysMatches[1]
-		}
 
 		dbName := fmt.Sprintf("db%s", dbIndex)
 
@@ -156,7 +144,6 @@ func discoverDatabases(ctx context.Context, endpoint *config.RedisEndpoint) ([]d
 			AttrRedisPort:     {port},
 			AttrRedisName:     {instanceName},
 			AttrDatabaseIndex: {dbIndex},
-			AttrDatabaseKeys:  {keyCount},
 			AttrDatabaseName:  {dbName},
 		}
 
@@ -178,7 +165,6 @@ func discoverDatabases(ctx context.Context, endpoint *config.RedisEndpoint) ([]d
 			AttrRedisPort:     {port},
 			AttrRedisName:     {instanceName},
 			AttrDatabaseIndex: {"0"},
-			AttrDatabaseKeys:  {"0"},
 			AttrDatabaseName:  {"db0"},
 		}
 

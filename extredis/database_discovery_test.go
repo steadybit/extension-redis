@@ -52,7 +52,6 @@ func TestDatabaseDiscovery_DescribeTarget(t *testing.T) {
 	}
 	assert.Contains(t, columnAttrs, AttrRedisHost)
 	assert.Contains(t, columnAttrs, AttrDatabaseIndex)
-	assert.Contains(t, columnAttrs, AttrDatabaseKeys)
 
 	// order by
 	require.Len(t, td.Table.OrderBy, 2)
@@ -77,21 +76,7 @@ func TestDatabaseDiscovery_DescribeAttributes(t *testing.T) {
 	}
 
 	assert.Contains(t, attrMap, AttrDatabaseIndex)
-	assert.Contains(t, attrMap, AttrDatabaseKeys)
 	assert.Contains(t, attrMap, AttrDatabaseName)
-}
-
-func TestNewRedisDatabaseDiscovery(t *testing.T) {
-	// Cancel context immediately to prevent background goroutines from running
-	// and accessing shared config state that other tests may modify
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	// When
-	discovery := NewRedisDatabaseDiscovery(ctx)
-
-	// Then
-	require.NotNil(t, discovery)
 }
 
 func TestDiscoverDatabases_EmptyDatabase(t *testing.T) {

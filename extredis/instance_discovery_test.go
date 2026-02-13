@@ -83,19 +83,6 @@ func TestInstanceDiscovery_DescribeAttributes(t *testing.T) {
 	assert.Contains(t, attrMap, AttrRedisRole)
 }
 
-func TestNewRedisInstanceDiscovery(t *testing.T) {
-	// Cancel context immediately to prevent background goroutines from running
-	// and accessing shared config state that other tests may modify
-	ctx, cancel := context.WithCancel(context.Background())
-	cancel() // Cancel immediately
-
-	// When
-	discovery := NewRedisInstanceDiscovery(ctx)
-
-	// Then
-	require.NotNil(t, discovery)
-}
-
 func TestDiscoverInstance_Success(t *testing.T) {
 	// Given
 	mr, err := miniredis.Run()

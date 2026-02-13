@@ -27,7 +27,6 @@ const (
 	AttrRedisName        = "redis.name"
 
 	AttrDatabaseIndex = "redis.database.index"
-	AttrDatabaseKeys  = "redis.database.keys"
 	AttrDatabaseName  = "redis.database.name"
 )
 
@@ -35,7 +34,7 @@ var redisIcon = "data:image/svg+xml;base64,PHN2ZyB2aWV3Qm94PSIwIDAgMjQgMjQiIGZpb
 
 // FetchTargetsPerEndpoint iterates through all configured endpoints and collects targets
 func FetchTargetsPerEndpoint(handler func(endpoint *config.RedisEndpoint) ([]discovery_kit_api.Target, error)) ([]discovery_kit_api.Target, error) {
-	var allTargets []discovery_kit_api.Target
+	allTargets := make([]discovery_kit_api.Target, 0)
 
 	for _, endpoint := range config.Config.Endpoints {
 		targets, err := handler(&endpoint)
