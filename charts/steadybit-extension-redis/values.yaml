@@ -98,6 +98,9 @@ tolerations: []
 # Affinity
 affinity: {}
 
+# priorityClassName -- Priority class used to influence pod scheduling priority.
+priorityClassName: null
+
 # TLS configuration
 tls:
   server:
