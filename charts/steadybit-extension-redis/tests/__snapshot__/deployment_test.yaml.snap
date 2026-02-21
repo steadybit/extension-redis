@@ -1,0 +1,257 @@
+manifest should match snapshot with default values:
+  1: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: steadybit-extension-redis
+        app.kubernetes.io/version: v0.0.0
+        helm.sh/chart: steadybit-extension-redis-1.0.1
+      name: RELEASE-NAME-steadybit-extension-redis
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: RELEASE-NAME
+          app.kubernetes.io/name: steadybit-extension-redis
+      template:
+        metadata:
+          annotations: null
+          labels:
+            app.kubernetes.io/instance: RELEASE-NAME
+            app.kubernetes.io/name: steadybit-extension-redis
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - env:
+                - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
+                  value: "30"
+                - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS
+                  value: "60"
+              image: ghcr.io/steadybit/extension-redis:v0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /health/liveness
+                  port: health
+                initialDelaySeconds: 10
+                periodSeconds: 10
+                successThreshold: 1
+                timeoutSeconds: 5
+              name: steadybit-extension-redis
+              ports:
+                - containerPort: 8083
+                  name: http
+                  protocol: TCP
+                - containerPort: 8084
+                  name: health
+                  protocol: TCP
+              readinessProbe:
+                failureThreshold: 3
+                httpGet:
+                  path: /health/readiness
+                  port: health
+                initialDelaySeconds: 10
+                periodSeconds: 10
+                successThreshold: 1
+                timeoutSeconds: 1
+              resources:
+                limits:
+                  cpu: 200m
+                  ephemeral-storage: 1Gi
+                  memory: 128Mi
+                requests:
+                  cpu: 50m
+                  ephemeral-storage: 128Mi
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+              volumeMounts: null
+          securityContext:
+            fsGroup: 10000
+            runAsGroup: 10000
+            runAsNonRoot: true
+            runAsUser: 10000
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: RELEASE-NAME-steadybit-extension-redis
+          volumes: null
+manifest should match snapshot with global priority class:
+  1: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: steadybit-extension-redis
+        app.kubernetes.io/version: v0.0.0
+        helm.sh/chart: steadybit-extension-redis-1.0.1
+      name: RELEASE-NAME-steadybit-extension-redis
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: RELEASE-NAME
+          app.kubernetes.io/name: steadybit-extension-redis
+      template:
+        metadata:
+          annotations: null
+          labels:
+            app.kubernetes.io/instance: RELEASE-NAME
+            app.kubernetes.io/name: steadybit-extension-redis
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - env:
+                - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
+                  value: "30"
+                - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS
+                  value: "60"
+              image: ghcr.io/steadybit/extension-redis:v0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /health/liveness
+                  port: health
+                initialDelaySeconds: 10
+                periodSeconds: 10
+                successThreshold: 1
+                timeoutSeconds: 5
+              name: steadybit-extension-redis
+              ports:
+                - containerPort: 8083
+                  name: http
+                  protocol: TCP
+                - containerPort: 8084
+                  name: health
+                  protocol: TCP
+              readinessProbe:
+                failureThreshold: 3
+                httpGet:
+                  path: /health/readiness
+                  port: health
+                initialDelaySeconds: 10
+                periodSeconds: 10
+                successThreshold: 1
+                timeoutSeconds: 1
+              resources:
+                limits:
+                  cpu: 200m
+                  ephemeral-storage: 1Gi
+                  memory: 128Mi
+                requests:
+                  cpu: 50m
+                  ephemeral-storage: 128Mi
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+              volumeMounts: null
+          priorityClassName: my-global-priority-class
+          securityContext:
+            fsGroup: 10000
+            runAsGroup: 10000
+            runAsNonRoot: true
+            runAsUser: 10000
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: RELEASE-NAME-steadybit-extension-redis
+          volumes: null
+manifest should match snapshot with priority class:
+  1: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        app.kubernetes.io/instance: RELEASE-NAME
+        app.kubernetes.io/managed-by: Helm
+        app.kubernetes.io/name: steadybit-extension-redis
+        app.kubernetes.io/version: v0.0.0
+        helm.sh/chart: steadybit-extension-redis-1.0.1
+      name: RELEASE-NAME-steadybit-extension-redis
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: RELEASE-NAME
+          app.kubernetes.io/name: steadybit-extension-redis
+      template:
+        metadata:
+          annotations: null
+          labels:
+            app.kubernetes.io/instance: RELEASE-NAME
+            app.kubernetes.io/name: steadybit-extension-redis
+        spec:
+          automountServiceAccountToken: false
+          containers:
+            - env:
+                - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
+                  value: "30"
+                - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS
+                  value: "60"
+              image: ghcr.io/steadybit/extension-redis:v0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /health/liveness
+                  port: health
+                initialDelaySeconds: 10
+                periodSeconds: 10
+                successThreshold: 1
+                timeoutSeconds: 5
+              name: steadybit-extension-redis
+              ports:
+                - containerPort: 8083
+                  name: http
+                  protocol: TCP
+                - containerPort: 8084
+                  name: health
+                  protocol: TCP
+              readinessProbe:
+                failureThreshold: 3
+                httpGet:
+                  path: /health/readiness
+                  port: health
+                initialDelaySeconds: 10
+                periodSeconds: 10
+                successThreshold: 1
+                timeoutSeconds: 1
+              resources:
+                limits:
+                  cpu: 200m
+                  ephemeral-storage: 1Gi
+                  memory: 128Mi
+                requests:
+                  cpu: 50m
+                  ephemeral-storage: 128Mi
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+              volumeMounts: null
+          priorityClassName: my-priority-class
+          securityContext:
+            fsGroup: 10000
+            runAsGroup: 10000
+            runAsNonRoot: true
+            runAsUser: 10000
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: RELEASE-NAME-steadybit-extension-redis
+          volumes: null
