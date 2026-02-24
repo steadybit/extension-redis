@@ -8,7 +8,7 @@ manifest should match snapshot with default values:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: steadybit-extension-redis
         app.kubernetes.io/version: v0.0.0
-        helm.sh/chart: steadybit-extension-redis-1.0.1
+        helm.sh/chart: steadybit-extension-redis-1.0.2
       name: RELEASE-NAME-steadybit-extension-redis
     spec:
       replicas: 1
@@ -93,7 +93,7 @@ manifest should match snapshot with global priority class:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: steadybit-extension-redis
         app.kubernetes.io/version: v0.0.0
-        helm.sh/chart: steadybit-extension-redis-1.0.1
+        helm.sh/chart: steadybit-extension-redis-1.0.2
       name: RELEASE-NAME-steadybit-extension-redis
     spec:
       replicas: 1
@@ -179,7 +179,7 @@ manifest should match snapshot with priority class:
         app.kubernetes.io/managed-by: Helm
         app.kubernetes.io/name: steadybit-extension-redis
         app.kubernetes.io/version: v0.0.0
-        helm.sh/chart: steadybit-extension-redis-1.0.1
+        helm.sh/chart: steadybit-extension-redis-1.0.2
       name: RELEASE-NAME-steadybit-extension-redis
     spec:
       replicas: 1
