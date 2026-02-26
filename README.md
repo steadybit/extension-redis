@@ -136,6 +136,23 @@ Discovers Redis databases (db0-db15) and exposes:
 - **Reversibility**: Fully reversible - any remaining keys are deleted on stop
 - **Note**: Total size per cycle (keySize × numKeys) must fit within Redis maxmemory limit. The attack will fail with an error if Redis cannot allocate memory for the keys.
 
+#### Cache Penetration
+- **ID**: `com.steadybit.extension_redis.instance.cache-penetration`
+- **Target**: Instance
+- **Description**: Continuously sends cache requests for non-existing keys to simulate cache penetration and reduce Redis performance
+- **Parameters**:
+  - `duration` - How long to send requests (default: 60s)
+  - `concurrency` - Number of concurrent workers sending requests (default: 10, max: 100)
+- **Reversibility**: Fully reversible - all workers stop on attack end
+
+#### Stop Sentinel
+- **ID**: `com.steadybit.extension_redis.instance.sentinel-stop`
+- **Target**: Instance
+- **Description**: Stops a Redis Sentinel server using DEBUG SLEEP, making it unresponsive to all clients and other Sentinels
+- **Parameters**:
+  - `duration` - How long the Sentinel should be unresponsive (default: 30s)
+- **Reversibility**: Auto-recovers after the sleep duration
+
 #### Trigger Background Save
 - **ID**: `com.steadybit.extension_redis.instance.trigger-bgsave`
 - **Target**: Instance
