@@ -127,7 +127,7 @@ func (a *cachePenetrationAttack) Start(ctx context.Context, state *CachePenetrat
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
-	workerCtx, cancel := context.WithDeadline(context.Background(), time.Unix(state.EndTime, 0))
+	workerCtx, cancel := context.WithDeadline(ctx, time.Unix(state.EndTime, 0))
 	counter := &atomic.Int64{}
 
 	cachePenetrationMutex.Lock()

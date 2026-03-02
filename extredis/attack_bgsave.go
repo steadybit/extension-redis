@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/action-kit/go/action_kit_sdk"
 	"github.com/steadybit/extension-kit/extbuild"
@@ -94,12 +95,10 @@ func (a *bgsaveAttack) Start(ctx context.Context, state *BgsaveState) (*action_k
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
 
-	// Verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
-	// Get last save time before triggering (returns Unix timestamp)
 	lastSaveTimestamp, err := client.LastSave(ctx).Result()
 	if err != nil {
 		return nil, fmt.Errorf("failed to get last save time: %w", err)
@@ -107,73 +106,19 @@ func (a *bgsaveAttack) Start(ctx context.Context, state *BgsaveState) (*action_k
 	state.LastSaveBefore = lastSaveTimestamp
 	lastSaveTime := time.Unix(lastSaveTimestamp, 0)
 
-	// Check if a background save is already in progress
-	info, err := clients.GetRedisInfo(ctx, client, "persistence")
-	if err != nil {
+	if inProgress, err := isBgsaveInProgress(ctx, client); err != nil {
 		return nil, fmt.Errorf("failed to get persistence info: %w", err)
+	} else if inProgress {
+		return bgsaveAlreadyInProgressResult(), nil
 	}
 
-	if bgsaveInProgress, ok := info["rdb_bgsave_in_progress"]; ok && bgsaveInProgress == "1" {
-		return &action_kit_api.StartResult{
-			Messages: extutil.Ptr([]action_kit_api.Message{
-				{
-					Level:   extutil.Ptr(action_kit_api.Warn),
-					Message: "A background save is already in progress",
-				},
-			}),
-		}, nil
-	}
-
-	// Trigger BGSAVE
 	result, err := client.BgSave(ctx).Result()
 	if err != nil {
-		// Redis returns an error if BGSAVE is already in progress
-		if err.Error() == "ERR Background save already in progress" {
-			return &action_kit_api.StartResult{
-				Messages: extutil.Ptr([]action_kit_api.Message{
-					{
-						Level:   extutil.Ptr(action_kit_api.Warn),
-						Message: "A background save is already in progress",
-					},
-				}),
-			}, nil
-		}
-
-		// Check if the command is disabled (common on managed Redis services)
-		errStr := strings.ToLower(err.Error())
-		if strings.Contains(errStr, "unknown command") || strings.Contains(errStr, "command not allowed") {
-			errMsg := "BGSAVE command is disabled on this Redis instance."
-			if state.IsElastiCache {
-				errMsg += " AWS ElastiCache disables administrative commands like BGSAVE, BGREWRITEAOF, SAVE, CONFIG, and DEBUG. " +
-					"Backups on ElastiCache are managed through AWS snapshots instead. " +
-					"Use 'aws elasticache create-snapshot' or the AWS Console to trigger backups."
-			} else {
-				errMsg += " This is common on managed Redis services (AWS ElastiCache, Azure Cache, GCP Memorystore) " +
-					"where the provider manages persistence. Check your provider's documentation for backup options."
-			}
-			return nil, fmt.Errorf("%s Original error: %w", errMsg, err)
-		}
-
-		return nil, fmt.Errorf("failed to trigger BGSAVE: %w", err)
+		return handleBgsaveError(err, state.IsElastiCache)
 	}
 
-	// Get current memory usage for context
-	memoryInfo, _ := clients.GetRedisInfo(ctx, client, "memory")
-	usedMemory := "unknown"
-	if val, ok := memoryInfo["used_memory_human"]; ok {
-		usedMemory = val
-	}
-
-	// Get key count for context
-	keyspaceInfo, _ := clients.GetRedisInfo(ctx, client, "keyspace")
-	keyCount := "unknown"
-	for key, val := range keyspaceInfo {
-		if len(key) > 2 && key[:2] == "db" {
-			// Parse keys=X from the value
-			keyCount = val
-			break
-		}
-	}
+	usedMemory := getInfoField(ctx, client, "memory", "used_memory_human")
+	keyCount := getFirstKeyspaceEntry(ctx, client)
 
 	return &action_kit_api.StartResult{
 		Messages: extutil.Ptr([]action_kit_api.Message{
@@ -183,4 +128,73 @@ func (a *bgsaveAttack) Start(ctx context.Context, state *BgsaveState) (*action_k
 			},
 		}),
 	}, nil
+}
+
+func isBgsaveInProgress(ctx context.Context, client *redis.Client) (bool, error) {
+	info, err := clients.GetRedisInfo(ctx, client, "persistence")
+	if err != nil {
+		return false, err
+	}
+	val, ok := info["rdb_bgsave_in_progress"]
+	return ok && val == "1", nil
+}
+
+func bgsaveAlreadyInProgressResult() *action_kit_api.StartResult {
+	return &action_kit_api.StartResult{
+		Messages: extutil.Ptr([]action_kit_api.Message{
+			{
+				Level:   extutil.Ptr(action_kit_api.Warn),
+				Message: "A background save is already in progress",
+			},
+		}),
+	}
+}
+
+func handleBgsaveError(err error, isElastiCache bool) (*action_kit_api.StartResult, error) {
+	if err.Error() == "ERR Background save already in progress" {
+		return bgsaveAlreadyInProgressResult(), nil
+	}
+
+	errStr := strings.ToLower(err.Error())
+	if strings.Contains(errStr, "unknown command") || strings.Contains(errStr, "command not allowed") {
+		return nil, fmt.Errorf("%s Original error: %w", bgsaveDisabledMessage(isElastiCache), err)
+	}
+
+	return nil, fmt.Errorf("failed to trigger BGSAVE: %w", err)
+}
+
+func bgsaveDisabledMessage(isElastiCache bool) string {
+	if isElastiCache {
+		return "BGSAVE command is disabled on this Redis instance." +
+			" AWS ElastiCache disables administrative commands like BGSAVE, BGREWRITEAOF, SAVE, CONFIG, and DEBUG." +
+			" Backups on ElastiCache are managed through AWS snapshots instead." +
+			" Use 'aws elasticache create-snapshot' or the AWS Console to trigger backups."
+	}
+	return "BGSAVE command is disabled on this Redis instance." +
+		" This is common on managed Redis services (AWS ElastiCache, Azure Cache, GCP Memorystore)" +
+		" where the provider manages persistence. Check your provider's documentation for backup options."
+}
+
+func getInfoField(ctx context.Context, client *redis.Client, section, field string) string {
+	info, err := clients.GetRedisInfo(ctx, client, section)
+	if err != nil {
+		return "unknown"
+	}
+	if val, ok := info[field]; ok {
+		return val
+	}
+	return "unknown"
+}
+
+func getFirstKeyspaceEntry(ctx context.Context, client *redis.Client) string {
+	info, err := clients.GetRedisInfo(ctx, client, "keyspace")
+	if err != nil {
+		return "unknown"
+	}
+	for key, val := range info {
+		if strings.HasPrefix(key, "db") {
+			return val
+		}
+	}
+	return "unknown"
 }

@@ -146,7 +146,7 @@ func (a *sentinelStopAttack) Status(ctx context.Context, state *SentinelStopStat
 	// Try to ping — if it succeeds, the DEBUG SLEEP is over
 	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err == nil {
-		if pingErr := clients.PingRedis(ctx, client); pingErr == nil {
+		if clients.PingRedis(ctx, client) == nil {
 			return &action_kit_api.StatusResult{
 				Completed: true,
 				Messages: extutil.Ptr([]action_kit_api.Message{
