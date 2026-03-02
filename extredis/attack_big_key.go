@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/action-kit/go/action_kit_sdk"
@@ -172,13 +173,15 @@ func (a *bigKeyAttack) Start(ctx context.Context, state *BigKeyState) (*action_k
 		}
 	}
 
+	// Generate the big value once and reuse it across all cycles
+	bigValue := generateBigValue(state.KeySize)
+
 	// Test creating one key first to validate memory is available
 	keySizeMB := state.KeySize / (1024 * 1024)
 	requestedTotalMB := keySizeMB * state.NumKeys
 
 	testKey := fmt.Sprintf("%stest", state.KeyPrefix)
-	testValue := generateBigValue(state.KeySize)
-	testErr := client.Set(ctx, testKey, testValue, 0).Err()
+	testErr := client.Set(ctx, testKey, bigValue, 0).Err()
 	if testErr != nil {
 		// Clean up test key just in case
 		client.Del(ctx, testKey)
@@ -211,7 +214,7 @@ func (a *bigKeyAttack) Start(ctx context.Context, state *BigKeyState) (*action_k
 	runningAttacksMu.Unlock()
 
 	// Start background goroutine for continuous create/delete cycles
-	go a.runBigKeyCycles(state, stats)
+	go a.runBigKeyCycles(state, stats, client, bigValue)
 
 	return &action_kit_api.StartResult{
 		Messages: extutil.Ptr([]action_kit_api.Message{
@@ -223,7 +226,7 @@ func (a *bigKeyAttack) Start(ctx context.Context, state *BigKeyState) (*action_k
 	}, nil
 }
 
-func (a *bigKeyAttack) runBigKeyCycles(state *BigKeyState, stats *bigKeyAttackStats) {
+func (a *bigKeyAttack) runBigKeyCycles(state *BigKeyState, stats *bigKeyAttackStats, client *redis.Client, bigValue []byte) {
 	keySizeMB := state.KeySize / (1024 * 1024)
 	cycleCount := 0
 
@@ -233,20 +236,6 @@ func (a *bigKeyAttack) runBigKeyCycles(state *BigKeyState, stats *bigKeyAttackSt
 			log.Info().Str("executionId", state.ExecutionId).Msg("Big key attack stopped")
 			return
 		default:
-			// Create a new client for each cycle
-			client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
-			if err != nil {
-				log.Error().Err(err).Msg("Failed to create Redis client for big key cycle")
-				stats.mu.Lock()
-				stats.lastError = err.Error()
-				stats.mu.Unlock()
-				time.Sleep(time.Second)
-				continue
-			}
-
-			// Generate big value
-			bigValue := generateBigValue(state.KeySize)
-
 			// Create keys
 			var createdKeys []string
 			for i := 0; i < state.NumKeys; i++ {
@@ -321,13 +310,13 @@ func (a *bigKeyAttack) runBigKeyCycles(state *BigKeyState, stats *bigKeyAttackSt
 	}
 }
 
-func generateBigValue(size int) string {
+func generateBigValue(size int) []byte {
 	const charset = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, size)
 	for i := range b {
 		b[i] = charset[rand.Intn(len(charset))]
 	}
-	return string(b)
+	return b
 }
 
 func (a *bigKeyAttack) Status(ctx context.Context, state *BigKeyState) (*action_kit_api.StatusResult, error) {
