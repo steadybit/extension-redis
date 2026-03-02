@@ -60,12 +60,12 @@ securityContext:
 # Resources
 resources:
   requests:
-    memory: "32Mi"
-    cpu: "50m"
+    memory: "64Mi"
+    cpu: "100m"
     ephemeral-storage: "128Mi"
   limits:
-    memory: "128Mi"
-    cpu: "200m"
+    memory: "256Mi"
+    cpu: "300m"
     ephemeral-storage: "1Gi"
 
 # Probes
