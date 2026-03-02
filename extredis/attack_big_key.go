@@ -256,7 +256,6 @@ func (a *bigKeyAttack) runBigKeyCycles(state *BigKeyState, stats *bigKeyAttackSt
 					for _, key := range createdKeys {
 						client.Del(context.Background(), key)
 					}
-					client.Close()
 					return
 				default:
 				}
@@ -286,7 +285,6 @@ func (a *bigKeyAttack) runBigKeyCycles(state *BigKeyState, stats *bigKeyAttackSt
 					stats.totalDeleted++
 					stats.mu.Unlock()
 				}
-				client.Close()
 				return
 			case <-time.After(500 * time.Millisecond):
 			}
@@ -303,7 +301,6 @@ func (a *bigKeyAttack) runBigKeyCycles(state *BigKeyState, stats *bigKeyAttackSt
 				}
 			}
 
-			client.Close()
 			cycleCount++
 			stats.mu.Lock()
 			stats.cycleCount = cycleCount
