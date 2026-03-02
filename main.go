@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package main
@@ -19,6 +19,7 @@ import (
 	"github.com/steadybit/extension-kit/exthealth"
 	"github.com/steadybit/extension-kit/exthttp"
 	"github.com/steadybit/extension-kit/extlogging"
+	"github.com/steadybit/extension-redis/clients"
 	"github.com/steadybit/extension-redis/config"
 	"github.com/steadybit/extension-redis/extredis"
 	_ "go.uber.org/automaxprocs"
@@ -30,6 +31,7 @@ func main() {
 
 	ctx, cancel := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM, syscall.SIGUSR1)
 	defer cancel()
+	defer clients.CloseAllClients()
 
 	config.ParseConfiguration()
 	config.ValidateConfiguration()

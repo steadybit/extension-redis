@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -143,11 +143,10 @@ func (a *blockedClientsCheck) Prepare(ctx context.Context, state *BlockedClients
 }
 
 func (a *blockedClientsCheck) Start(ctx context.Context, state *BlockedClientsCheckState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	if err := clients.PingRedis(ctx, client); err != nil {
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
@@ -167,7 +166,7 @@ func (a *blockedClientsCheck) Status(ctx context.Context, state *BlockedClientsC
 	now := time.Now()
 	completed := now.Unix() >= state.EndTime
 
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return &action_kit_api.StatusResult{
 			Completed: completed,
@@ -178,7 +177,6 @@ func (a *blockedClientsCheck) Status(ctx context.Context, state *BlockedClientsC
 			},
 		}, nil
 	}
-	defer client.Close()
 
 	clientsInfo, err := clients.GetRedisInfo(ctx, client, "clients")
 	if err != nil {

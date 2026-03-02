@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -129,11 +129,10 @@ func (a *memoryFillAttack) Prepare(ctx context.Context, state *MemoryFillState, 
 }
 
 func (a *memoryFillAttack) Start(ctx context.Context, state *MemoryFillState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	// Verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {
@@ -154,12 +153,11 @@ func (a *memoryFillAttack) Start(ctx context.Context, state *MemoryFillState) (*
 }
 
 func (a *memoryFillAttack) fillMemory(state *MemoryFillState) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to create Redis client for memory fill")
 		return
 	}
-	defer client.Close()
 
 	ctx := context.Background()
 
@@ -223,13 +221,12 @@ func (a *memoryFillAttack) Status(ctx context.Context, state *MemoryFillState) (
 	now := time.Now().Unix()
 	completed := now >= state.EndTime
 
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return &action_kit_api.StatusResult{
 			Completed: completed,
 		}, nil
 	}
-	defer client.Close()
 
 	// Get current memory usage
 	memoryInfo, err := clients.GetRedisInfo(ctx, client, "memory")
@@ -252,11 +249,10 @@ func (a *memoryFillAttack) Status(ctx context.Context, state *MemoryFillState) (
 }
 
 func (a *memoryFillAttack) Stop(ctx context.Context, state *MemoryFillState) (*action_kit_api.StopResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client for cleanup: %w", err)
 	}
-	defer client.Close()
 
 	// Delete all created keys
 	deletedCount := 0

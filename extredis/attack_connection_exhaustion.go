@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -162,15 +162,13 @@ func (a *connectionExhaustionAttack) Prepare(ctx context.Context, state *Connect
 
 func (a *connectionExhaustionAttack) Start(ctx context.Context, state *ConnectionExhaustionState) (*action_kit_api.StartResult, error) {
 	// Test connection first
-	testClient, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	testClient, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
 	if err := clients.PingRedis(ctx, testClient); err != nil {
-		testClient.Close()
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
-	testClient.Close()
 
 	// Generate unique key for this attack instance
 	attackKey := fmt.Sprintf("%s-%d", state.RedisURL, time.Now().UnixNano())
@@ -285,9 +283,8 @@ func (a *connectionExhaustionAttack) Status(ctx context.Context, state *Connecti
 
 	// Get current connection count from Redis
 	connectedClients := "unknown (connection exhausted)"
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err == nil {
-		defer client.Close()
 		clientsInfo, err := clients.GetRedisInfo(ctx, client, "clients")
 		if err == nil {
 			if cc, ok := clientsInfo["connected_clients"]; ok {

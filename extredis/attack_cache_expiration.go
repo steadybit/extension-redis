@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -158,11 +158,10 @@ func (a *cacheExpirationAttack) Prepare(ctx context.Context, state *CacheExpirat
 }
 
 func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpirationState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	// Verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {
@@ -297,10 +296,9 @@ func (a *cacheExpirationAttack) Status(ctx context.Context, state *CacheExpirati
 	completed := now >= state.EndTime
 
 	// Check how many keys still exist
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	remainingKeys := 0
 	if err == nil {
-		defer client.Close()
 		for _, key := range state.AffectedKeys {
 			exists, err := client.Exists(ctx, key).Result()
 			if err == nil && exists > 0 {
@@ -334,7 +332,7 @@ func (a *cacheExpirationAttack) Stop(ctx context.Context, state *CacheExpiration
 		}, nil
 	}
 
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return &action_kit_api.StopResult{
 			Messages: extutil.Ptr([]action_kit_api.Message{
@@ -345,7 +343,6 @@ func (a *cacheExpirationAttack) Stop(ctx context.Context, state *CacheExpiration
 			}),
 		}, nil
 	}
-	defer client.Close()
 
 	// Restore backed up keys
 	restoredCount := 0

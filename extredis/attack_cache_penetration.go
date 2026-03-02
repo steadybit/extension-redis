@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -118,11 +118,10 @@ func (a *cachePenetrationAttack) Prepare(ctx context.Context, state *CachePenetr
 }
 
 func (a *cachePenetrationAttack) Start(ctx context.Context, state *CachePenetrationState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	if err := clients.PingRedis(ctx, client); err != nil {
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
@@ -151,12 +150,11 @@ func (a *cachePenetrationAttack) Start(ctx context.Context, state *CachePenetrat
 }
 
 func (a *cachePenetrationAttack) sendRequests(ctx context.Context, state *CachePenetrationState, workerID int, counter *atomic.Int64) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		log.Error().Err(err).Int("worker", workerID).Msg("Failed to create Redis client for cache penetration worker")
 		return
 	}
-	defer client.Close()
 
 	keyCounter := 0
 	for {

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -57,7 +57,7 @@ func (a *sentinelStopAttack) Describe() action_kit_api.ActionDescription {
 		Technology:  extutil.Ptr("Redis"),
 		Category:    extutil.Ptr("availability"),
 		Kind:        action_kit_api.Attack,
-		TimeControl: action_kit_api.TimeControlExternal,
+		TimeControl: action_kit_api.TimeControlInternal,
 		Parameters: []action_kit_api.ActionParameter{
 			{
 				Name:         "duration",
@@ -87,11 +87,10 @@ func (a *sentinelStopAttack) Prepare(ctx context.Context, state *SentinelStopSta
 }
 
 func (a *sentinelStopAttack) Start(ctx context.Context, state *SentinelStopState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	if err := clients.PingRedis(ctx, client); err != nil {
 		return nil, fmt.Errorf("failed to ping Redis Sentinel: %w", err)
@@ -142,25 +141,42 @@ func (a *sentinelStopAttack) Start(ctx context.Context, state *SentinelStopState
 
 func (a *sentinelStopAttack) Status(ctx context.Context, state *SentinelStopState) (*action_kit_api.StatusResult, error) {
 	now := time.Now().Unix()
-	completed := now >= state.EndTime
+	remaining := state.EndTime - now
 
-	remainingSeconds := state.EndTime - now
-	if remainingSeconds < 0 {
-		remainingSeconds = 0
+	// Try to ping — if it succeeds, the DEBUG SLEEP is over
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
+	if err == nil {
+		if pingErr := clients.PingRedis(ctx, client); pingErr == nil {
+			return &action_kit_api.StatusResult{
+				Completed: true,
+				Messages: extutil.Ptr([]action_kit_api.Message{
+					{
+						Level:   extutil.Ptr(action_kit_api.Info),
+						Message: "Sentinel is responsive again",
+					},
+				}),
+			}, nil
+		}
 	}
 
-	level := action_kit_api.Info
-	msg := fmt.Sprintf("Sentinel is sleeping, %d seconds remaining until automatic recovery", remainingSeconds)
-	if completed {
-		msg = "Sentinel sleep completed, instance should be responsive again"
+	if remaining <= 0 {
+		return &action_kit_api.StatusResult{
+			Completed: true,
+			Messages: extutil.Ptr([]action_kit_api.Message{
+				{
+					Level:   extutil.Ptr(action_kit_api.Warn),
+					Message: "Expected sleep duration elapsed but Sentinel is still unresponsive",
+				},
+			}),
+		}, nil
 	}
 
 	return &action_kit_api.StatusResult{
-		Completed: completed,
+		Completed: false,
 		Messages: extutil.Ptr([]action_kit_api.Message{
 			{
-				Level:   extutil.Ptr(level),
-				Message: msg,
+				Level:   extutil.Ptr(action_kit_api.Info),
+				Message: fmt.Sprintf("Sentinel is sleeping, %d seconds remaining", remaining),
 			},
 		}),
 	}, nil

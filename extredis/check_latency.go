@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -146,11 +146,10 @@ func (a *latencyCheck) Prepare(ctx context.Context, state *LatencyCheckState, re
 
 func (a *latencyCheck) Start(ctx context.Context, state *LatencyCheckState) (*action_kit_api.StartResult, error) {
 	// Verify connection
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	if err := clients.PingRedis(ctx, client); err != nil {
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
@@ -171,7 +170,7 @@ func (a *latencyCheck) Status(ctx context.Context, state *LatencyCheckState) (*a
 	completed := now.Unix() >= state.EndTime
 
 	// Measure latency
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		state.FailedPings++
 		return &action_kit_api.StatusResult{
@@ -183,7 +182,6 @@ func (a *latencyCheck) Status(ctx context.Context, state *LatencyCheckState) (*a
 			},
 		}, nil
 	}
-	defer client.Close()
 
 	// Measure ping latency
 	start := time.Now()

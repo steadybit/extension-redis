@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
@@ -29,12 +28,10 @@ type KeyDeleteState struct {
 	DeletedKeys   []string          `json:"deletedKeys"`
 	BackupData    map[string]string `json:"backupData"` // For restore on stop
 	RestoreOnStop bool              `json:"restoreOnStop"`
-	EndTime       int64             `json:"endTime"`
 }
 
 var _ action_kit_sdk.Action[KeyDeleteState] = (*keyDeleteAttack)(nil)
 var _ action_kit_sdk.ActionWithStop[KeyDeleteState] = (*keyDeleteAttack)(nil)
-var _ action_kit_sdk.ActionWithStatus[KeyDeleteState] = (*keyDeleteAttack)(nil)
 
 func NewKeyDeleteAttack() action_kit_sdk.Action[KeyDeleteState] {
 	return &keyDeleteAttack{}
@@ -117,7 +114,6 @@ func (a *keyDeleteAttack) Prepare(ctx context.Context, state *KeyDeleteState, re
 		db, _ = strconv.Atoi(dbIndex[0])
 	}
 
-	duration := extutil.ToInt64(request.Config["duration"]) / 1000 // Convert ms to seconds
 	pattern := extutil.ToString(request.Config["pattern"])
 	maxKeys := int(extutil.ToInt64(request.Config["maxKeys"]))
 	restoreOnStop := extutil.ToBool(request.Config["restoreOnStop"])
@@ -133,17 +129,15 @@ func (a *keyDeleteAttack) Prepare(ctx context.Context, state *KeyDeleteState, re
 	state.RestoreOnStop = restoreOnStop
 	state.DeletedKeys = []string{}
 	state.BackupData = make(map[string]string)
-	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
 
 	return nil, nil
 }
 
 func (a *keyDeleteAttack) Start(ctx context.Context, state *KeyDeleteState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	// Verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {
@@ -219,21 +213,6 @@ func (a *keyDeleteAttack) Start(ctx context.Context, state *KeyDeleteState) (*ac
 	}, nil
 }
 
-func (a *keyDeleteAttack) Status(ctx context.Context, state *KeyDeleteState) (*action_kit_api.StatusResult, error) {
-	now := time.Now().Unix()
-	completed := now >= state.EndTime
-
-	return &action_kit_api.StatusResult{
-		Completed: completed,
-		Messages: extutil.Ptr([]action_kit_api.Message{
-			{
-				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Deleted %d keys matching pattern '%s'", len(state.DeletedKeys), state.Pattern),
-			},
-		}),
-	}, nil
-}
-
 func (a *keyDeleteAttack) Stop(ctx context.Context, state *KeyDeleteState) (*action_kit_api.StopResult, error) {
 	if !state.RestoreOnStop || len(state.BackupData) == 0 {
 		return &action_kit_api.StopResult{
@@ -246,11 +225,10 @@ func (a *keyDeleteAttack) Stop(ctx context.Context, state *KeyDeleteState) (*act
 		}, nil
 	}
 
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client for restore: %w", err)
 	}
-	defer client.Close()
 
 	// Restore backed up keys
 	restoredCount := 0

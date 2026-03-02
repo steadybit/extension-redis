@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -150,11 +150,10 @@ func (a *cacheHitRateCheck) Prepare(ctx context.Context, state *CacheHitRateChec
 }
 
 func (a *cacheHitRateCheck) Start(ctx context.Context, state *CacheHitRateCheckState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	if err := clients.PingRedis(ctx, client); err != nil {
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
@@ -183,7 +182,7 @@ func (a *cacheHitRateCheck) Status(ctx context.Context, state *CacheHitRateCheck
 	now := time.Now()
 	completed := now.Unix() >= state.EndTime
 
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return &action_kit_api.StatusResult{
 			Completed: completed,
@@ -194,7 +193,6 @@ func (a *cacheHitRateCheck) Status(ctx context.Context, state *CacheHitRateCheck
 			},
 		}, nil
 	}
-	defer client.Close()
 
 	statsInfo, err := clients.GetRedisInfo(ctx, client, "stats")
 	if err != nil {

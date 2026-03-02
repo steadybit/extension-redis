@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -150,11 +150,10 @@ func (a *bigKeyAttack) Prepare(ctx context.Context, state *BigKeyState, request 
 }
 
 func (a *bigKeyAttack) Start(ctx context.Context, state *BigKeyState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	// Verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {
@@ -235,7 +234,7 @@ func (a *bigKeyAttack) runBigKeyCycles(state *BigKeyState, stats *bigKeyAttackSt
 			return
 		default:
 			// Create a new client for each cycle
-			client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+			client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 			if err != nil {
 				log.Error().Err(err).Msg("Failed to create Redis client for big key cycle")
 				stats.mu.Lock()
@@ -338,10 +337,9 @@ func (a *bigKeyAttack) Status(ctx context.Context, state *BigKeyState) (*action_
 	now := time.Now().Unix()
 	completed := now >= state.EndTime
 
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	var memUsed string
 	if err == nil {
-		defer client.Close()
 		memoryInfo, err := clients.GetRedisInfo(ctx, client, "memory")
 		if err == nil {
 			if used, ok := memoryInfo["used_memory_human"]; ok {
@@ -402,7 +400,7 @@ func (a *bigKeyAttack) Stop(ctx context.Context, state *BigKeyState) (*action_ki
 	time.Sleep(200 * time.Millisecond)
 
 	// Clean up any remaining keys (safety net)
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return &action_kit_api.StopResult{
 			Messages: extutil.Ptr([]action_kit_api.Message{
@@ -413,7 +411,6 @@ func (a *bigKeyAttack) Stop(ctx context.Context, state *BigKeyState) (*action_ki
 			}),
 		}, nil
 	}
-	defer client.Close()
 
 	// Scan for any remaining keys with our prefix and delete them
 	var cursor uint64 = 0

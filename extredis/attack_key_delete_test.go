@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"testing"
-	"time"
 
 	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
@@ -189,7 +188,6 @@ func TestKeyDeleteAttack_StartStatusStop(t *testing.T) {
 		RestoreOnStop: true,
 		DeletedKeys:   []string{},
 		BackupData:    make(map[string]string),
-		EndTime:       time.Now().Add(60 * time.Second).Unix(),
 	}
 
 	// When - Start
@@ -199,13 +197,6 @@ func TestKeyDeleteAttack_StartStatusStop(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, startResult)
 	assert.Len(t, state.DeletedKeys, 2)
-
-	// When - Status
-	statusResult, err := action.Status(context.Background(), &state)
-
-	// Then - Status
-	require.NoError(t, err)
-	require.NotNil(t, statusResult)
 
 	// When - Stop (restore keys)
 	stopResult, err := action.Stop(context.Background(), &state)
@@ -235,7 +226,6 @@ func TestKeyDeleteAttack_Start_NoMatchingKeys(t *testing.T) {
 		RestoreOnStop: false,
 		DeletedKeys:   []string{},
 		BackupData:    make(map[string]string),
-		EndTime:       time.Now().Add(60 * time.Second).Unix(),
 	}
 
 	// When
@@ -272,26 +262,6 @@ func TestNewKeyDeleteAttack(t *testing.T) {
 
 	// Then
 	require.NotNil(t, action)
-}
-
-func TestKeyDeleteAttack_Status_Completed(t *testing.T) {
-	// Given
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{
-		RedisURL:    "redis://localhost:6379",
-		DB:          0,
-		Pattern:     "test:*",
-		DeletedKeys: []string{"key1"},
-		EndTime:     time.Now().Add(-1 * time.Second).Unix(), // Already expired
-	}
-
-	// When
-	result, err := action.Status(context.Background(), &state)
-
-	// Then
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.Completed)
 }
 
 func TestKeyDeleteAttack_Stop_NoKeysToRestore(t *testing.T) {

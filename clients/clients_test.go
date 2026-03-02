@@ -182,7 +182,7 @@ func TestParseRedisURL_DefaultSettings(t *testing.T) {
 	// Then
 	require.NoError(t, err)
 	assert.Equal(t, 10, opts.PoolSize)
-	assert.Equal(t, 1, opts.MinIdleConns)
+	assert.Equal(t, 0, opts.MinIdleConns)
 }
 
 func TestParseRedisURL_CredentialOverrides(t *testing.T) {

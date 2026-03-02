@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -85,6 +85,18 @@ func (d *redisDatabaseDiscovery) DiscoverTargets(ctx context.Context) ([]discove
 }
 
 func discoverDatabases(ctx context.Context, endpoint *config.RedisEndpoint) ([]discovery_kit_api.Target, error) {
+	// Parse URL first to fail fast on invalid URLs
+	parsedURL, err := url.Parse(endpoint.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse Redis URL: %w", err)
+	}
+
+	host := parsedURL.Hostname()
+	port := parsedURL.Port()
+	if port == "" {
+		port = "6379"
+	}
+
 	client, err := clients.CreateRedisClient(endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
@@ -101,18 +113,6 @@ func discoverDatabases(ctx context.Context, endpoint *config.RedisEndpoint) ([]d
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to get keyspace info")
 		keyspaceInfo = make(map[string]string)
-	}
-
-	// Parse URL to get host and port
-	parsedURL, err := url.Parse(endpoint.URL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse Redis URL: %w", err)
-	}
-
-	host := parsedURL.Hostname()
-	port := parsedURL.Port()
-	if port == "" {
-		port = "6379"
 	}
 
 	// Build target name

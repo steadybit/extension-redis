@@ -1,12 +1,11 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
 
 import (
-	"fmt"
-
+	"github.com/rs/zerolog/log"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_api"
 	"github.com/steadybit/extension-redis/config"
 )
@@ -40,7 +39,7 @@ func FetchTargetsPerEndpoint(handler func(endpoint *config.RedisEndpoint) ([]dis
 		targets, err := handler(&endpoint)
 		if err != nil {
 			// Log error but continue with other endpoints
-			fmt.Printf("Error discovering targets for endpoint %s: %v\n", endpoint.URL, err)
+			log.Warn().Err(err).Msgf("Error discovering targets for endpoint %s", endpoint.URL)
 			continue
 		}
 		allTargets = append(allTargets, targets...)

@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -89,11 +89,10 @@ func (a *bgsaveAttack) Prepare(ctx context.Context, state *BgsaveState, request 
 }
 
 func (a *bgsaveAttack) Start(ctx context.Context, state *BgsaveState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	// Verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {

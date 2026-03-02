@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -55,7 +55,6 @@ func (d *redisInstanceDiscovery) DescribeTarget() discovery_kit_api.TargetDescri
 				{Attribute: AttrRedisName},
 				{Attribute: AttrRedisHost},
 				{Attribute: AttrRedisPort},
-				{Attribute: AttrRedisVersion},
 				{Attribute: AttrRedisRole},
 			},
 			OrderBy: []discovery_kit_api.OrderBy{
@@ -109,6 +108,18 @@ func (d *redisInstanceDiscovery) DiscoverTargets(ctx context.Context) ([]discove
 }
 
 func discoverInstance(ctx context.Context, endpoint *config.RedisEndpoint) ([]discovery_kit_api.Target, error) {
+	// Parse URL first to fail fast on invalid URLs
+	parsedURL, err := url.Parse(endpoint.URL)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse Redis URL: %w", err)
+	}
+
+	host := parsedURL.Hostname()
+	port := parsedURL.Port()
+	if port == "" {
+		port = "6379"
+	}
+
 	client, err := clients.CreateRedisClient(endpoint)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
@@ -120,44 +131,11 @@ func discoverInstance(ctx context.Context, endpoint *config.RedisEndpoint) ([]di
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
-	// Get server info
-	serverInfo, err := clients.GetRedisInfo(ctx, client, "server")
+	// Get all info in a single call
+	allInfo, err := clients.GetRedisInfo(ctx, client, "")
 	if err != nil {
-		log.Warn().Err(err).Msg("Failed to get server info")
-		serverInfo = make(map[string]string)
-	}
-
-	// Get memory info
-	memoryInfo, err := clients.GetRedisInfo(ctx, client, "memory")
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to get memory info")
-		memoryInfo = make(map[string]string)
-	}
-
-	// Get replication info
-	replicationInfo, err := clients.GetRedisInfo(ctx, client, "replication")
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to get replication info")
-		replicationInfo = make(map[string]string)
-	}
-
-	// Get cluster info
-	clusterInfo, err := clients.GetRedisInfo(ctx, client, "cluster")
-	if err != nil {
-		log.Warn().Err(err).Msg("Failed to get cluster info")
-		clusterInfo = make(map[string]string)
-	}
-
-	// Parse URL to get host and port
-	parsedURL, err := url.Parse(endpoint.URL)
-	if err != nil {
-		return nil, fmt.Errorf("failed to parse Redis URL: %w", err)
-	}
-
-	host := parsedURL.Hostname()
-	port := parsedURL.Port()
-	if port == "" {
-		port = "6379"
+		log.Warn().Err(err).Msg("Failed to get Redis info")
+		allInfo = make(map[string]string)
 	}
 
 	// Build target name
@@ -173,22 +151,20 @@ func discoverInstance(ctx context.Context, endpoint *config.RedisEndpoint) ([]di
 		AttrRedisName: {name},
 	}
 
-	// Add server info attributes
-	if version, ok := serverInfo["redis_version"]; ok {
+	// Add info attributes
+	if version, ok := allInfo["redis_version"]; ok {
 		attributes[AttrRedisVersion] = []string{version}
 	}
 
-	if memMax, ok := memoryInfo["maxmemory"]; ok {
+	if memMax, ok := allInfo["maxmemory"]; ok {
 		attributes[AttrRedisMemoryMax] = []string{memMax}
 	}
 
-	// Add replication info attributes
-	if role, ok := replicationInfo["role"]; ok {
+	if role, ok := allInfo["role"]; ok {
 		attributes[AttrRedisRole] = []string{role}
 	}
 
-	// Add cluster info attributes
-	if clusterEnabled, ok := clusterInfo["cluster_enabled"]; ok {
+	if clusterEnabled, ok := allInfo["cluster_enabled"]; ok {
 		attributes[AttrRedisClusterMode] = []string{clusterEnabled}
 	}
 

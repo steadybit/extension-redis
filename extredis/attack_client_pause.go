@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -28,6 +28,7 @@ type ClientPauseState struct {
 
 var _ action_kit_sdk.Action[ClientPauseState] = (*clientPauseAttack)(nil)
 var _ action_kit_sdk.ActionWithStatus[ClientPauseState] = (*clientPauseAttack)(nil)
+var _ action_kit_sdk.ActionWithStop[ClientPauseState] = (*clientPauseAttack)(nil)
 
 func NewClientPauseAttack() action_kit_sdk.Action[ClientPauseState] {
 	return &clientPauseAttack{}
@@ -111,11 +112,10 @@ func (a *clientPauseAttack) Prepare(ctx context.Context, state *ClientPauseState
 }
 
 func (a *clientPauseAttack) Start(ctx context.Context, state *ClientPauseState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	// Verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {
@@ -167,6 +167,28 @@ func (a *clientPauseAttack) Status(ctx context.Context, state *ClientPauseState)
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Client pause active (mode: %s), %d seconds remaining", state.PauseMode, remainingSeconds),
+			},
+		}),
+	}, nil
+}
+
+func (a *clientPauseAttack) Stop(ctx context.Context, state *ClientPauseState) (*action_kit_api.StopResult, error) {
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Redis client: %w", err)
+	}
+
+	// CLIENT UNPAUSE resumes normal client processing
+	err = client.Do(ctx, "CLIENT", "UNPAUSE").Err()
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute CLIENT UNPAUSE: %w", err)
+	}
+
+	return &action_kit_api.StopResult{
+		Messages: extutil.Ptr([]action_kit_api.Message{
+			{
+				Level:   extutil.Ptr(action_kit_api.Info),
+				Message: "Executed CLIENT UNPAUSE, clients resumed",
 			},
 		}),
 	}, nil

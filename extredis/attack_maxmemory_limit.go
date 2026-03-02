@@ -1,5 +1,5 @@
 /*
- * Copyright 2024 steadybit GmbH. All rights reserved.
+ * Copyright 2026 steadybit GmbH. All rights reserved.
  */
 
 package extredis
@@ -146,11 +146,10 @@ func (a *maxmemoryLimitAttack) Prepare(ctx context.Context, state *MaxmemoryLimi
 }
 
 func (a *maxmemoryLimitAttack) Start(ctx context.Context, state *MaxmemoryLimitState) (*action_kit_api.StartResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
-	defer client.Close()
 
 	// Verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {
@@ -216,10 +215,9 @@ func (a *maxmemoryLimitAttack) Status(ctx context.Context, state *MaxmemoryLimit
 	now := time.Now().Unix()
 	completed := now >= state.EndTime
 
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	var memoryInfo string
 	if err == nil {
-		defer client.Close()
 		info, err := clients.GetRedisInfo(ctx, client, "memory")
 		if err == nil {
 			if used, ok := info["used_memory_human"]; ok {
@@ -240,25 +238,22 @@ func (a *maxmemoryLimitAttack) Status(ctx context.Context, state *MaxmemoryLimit
 }
 
 func (a *maxmemoryLimitAttack) Stop(ctx context.Context, state *MaxmemoryLimitState) (*action_kit_api.StopResult, error) {
-	client, err := clients.CreateRedisClientFromURL(state.RedisURL, state.Password, state.DB)
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create Redis client for restore: %w", err)
 	}
-	defer client.Close()
 
 	var restoreErrors []string
 
 	// Restore original maxmemory
-	if state.OriginalMaxmemory != "" {
-		err = client.ConfigSet(ctx, "maxmemory", state.OriginalMaxmemory).Err()
-		if err != nil {
-			restoreErrors = append(restoreErrors, fmt.Sprintf("maxmemory: %v", err))
-			log.Warn().Err(err).Str("value", state.OriginalMaxmemory).Msg("Failed to restore maxmemory")
-		}
+	err = client.ConfigSet(ctx, "maxmemory", state.OriginalMaxmemory).Err()
+	if err != nil {
+		restoreErrors = append(restoreErrors, fmt.Sprintf("maxmemory: %v", err))
+		log.Warn().Err(err).Str("value", state.OriginalMaxmemory).Msg("Failed to restore maxmemory")
 	}
 
 	// Restore original policy
-	if state.OriginalPolicy != "" && state.NewPolicy != "keep" {
+	if state.NewPolicy != "keep" {
 		err = client.ConfigSet(ctx, "maxmemory-policy", state.OriginalPolicy).Err()
 		if err != nil {
 			restoreErrors = append(restoreErrors, fmt.Sprintf("policy: %v", err))

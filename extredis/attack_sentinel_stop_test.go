@@ -30,7 +30,7 @@ func TestSentinelStopAttack_Describe(t *testing.T) {
 	assert.Contains(t, desc.Description, "DEBUG SLEEP")
 	assert.Equal(t, TargetTypeInstance, desc.TargetSelection.TargetType)
 	assert.Equal(t, action_kit_api.Attack, desc.Kind)
-	assert.Equal(t, action_kit_api.TimeControlExternal, desc.TimeControl)
+	assert.Equal(t, action_kit_api.TimeControlInternal, desc.TimeControl)
 
 	// Check parameters
 	require.NotNil(t, desc.Parameters)
@@ -134,46 +134,6 @@ func TestSentinelStopAttack_Start_NotSentinelMode(t *testing.T) {
 	// Then - miniredis doesn't support DEBUG SLEEP, so we expect an error
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "DEBUG SLEEP")
-}
-
-func TestSentinelStopAttack_Status_NotCompleted(t *testing.T) {
-	// Given
-	action := &sentinelStopAttack{}
-	state := SentinelStopState{
-		RedisURL: "redis://localhost:26379",
-		DB:       0,
-		EndTime:  time.Now().Add(30 * time.Second).Unix(),
-	}
-
-	// When
-	result, err := action.Status(context.Background(), &state)
-
-	// Then
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.False(t, result.Completed)
-	require.NotNil(t, result.Messages)
-	assert.Contains(t, (*result.Messages)[0].Message, "sleeping")
-}
-
-func TestSentinelStopAttack_Status_Completed(t *testing.T) {
-	// Given
-	action := &sentinelStopAttack{}
-	state := SentinelStopState{
-		RedisURL: "redis://localhost:26379",
-		DB:       0,
-		EndTime:  time.Now().Add(-10 * time.Second).Unix(), // Already past
-	}
-
-	// When
-	result, err := action.Status(context.Background(), &state)
-
-	// Then
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.True(t, result.Completed)
-	require.NotNil(t, result.Messages)
-	assert.Contains(t, (*result.Messages)[0].Message, "completed")
 }
 
 func TestNewSentinelStopAttack(t *testing.T) {
