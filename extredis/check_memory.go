@@ -101,7 +101,7 @@ func (a *memoryCheck) Describe() action_kit_api.ActionDescription {
 					Mode:       action_kit_api.ComSteadybitWidgetLineChartIdentityModeSelect,
 				},
 				Tooltip: extutil.Ptr(action_kit_api.LineChartWidgetTooltipConfig{
-					MetricValueTitle: extutil.Ptr("Memory Used"),
+					MetricValueTitle: extutil.Ptr("Memory Used (MB)"),
 					AdditionalContent: []action_kit_api.LineChartWidgetTooltipContent{
 						{From: "redis.host", Title: "Host"},
 					},
@@ -205,7 +205,7 @@ func (a *memoryCheck) Status(ctx context.Context, state *MemoryCheckState) (*act
 	// Check absolute threshold
 	if state.MaxMemoryBytes > 0 && usedMemory > state.MaxMemoryBytes {
 		state.ThresholdExceeded = true
-		thresholdViolation = fmt.Sprintf("Memory usage %d bytes exceeds threshold %d bytes", usedMemory, state.MaxMemoryBytes)
+		thresholdViolation = fmt.Sprintf("Memory usage %.2f MB exceeds threshold %.2f MB", float64(usedMemory)/1024/1024, float64(state.MaxMemoryBytes)/1024/1024)
 	}
 
 	// Create metrics
@@ -215,7 +215,7 @@ func (a *memoryCheck) Status(ctx context.Context, state *MemoryCheckState) (*act
 			Metric: map[string]string{
 				"redis.host": state.RedisURL,
 			},
-			Value:     float64(usedMemory),
+			Value:     float64(usedMemory) / 1024 / 1024,
 			Timestamp: now,
 		},
 	}
@@ -226,7 +226,7 @@ func (a *memoryCheck) Status(ctx context.Context, state *MemoryCheckState) (*act
 			Metric: map[string]string{
 				"redis.host": state.RedisURL,
 			},
-			Value:     float64(maxMemory),
+			Value:     float64(maxMemory) / 1024 / 1024,
 			Timestamp: now,
 		})
 	}
