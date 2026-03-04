@@ -78,7 +78,7 @@ func (a *keyDeleteAttack) Describe() action_kit_api.ActionDescription {
 				Label:        "Key Pattern",
 				Description:  extutil.Ptr("Pattern to match keys for deletion (e.g., 'user:*', 'cache:*')"),
 				Type:         action_kit_api.ActionParameterTypeString,
-				DefaultValue: extutil.Ptr("steadybit-test:*"),
+				DefaultValue: extutil.Ptr(""),
 				Required:     extutil.Ptr(true),
 			},
 			{
