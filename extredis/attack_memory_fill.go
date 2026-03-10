@@ -37,6 +37,10 @@ var _ action_kit_sdk.Action[MemoryFillState] = (*memoryFillAttack)(nil)
 var _ action_kit_sdk.ActionWithStop[MemoryFillState] = (*memoryFillAttack)(nil)
 var _ action_kit_sdk.ActionWithStatus[MemoryFillState] = (*memoryFillAttack)(nil)
 
+// memoryFillMutexes protects concurrent access to MemoryFillState.CreatedKeys
+// between the background goroutine (fillMemory) and Stop/Status methods.
+var memoryFillMutexes sync.Map
+
 func NewMemoryFillAttack() action_kit_sdk.Action[MemoryFillState] {
 	return &memoryFillAttack{}
 }
@@ -139,6 +143,9 @@ func (a *memoryFillAttack) Start(ctx context.Context, state *MemoryFillState) (*
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
+	// Register mutex for this attack instance before starting the goroutine
+	memoryFillMutexes.LoadOrStore(state.KeyPrefix, &sync.Mutex{})
+
 	// Start filling memory in background
 	go a.fillMemory(state)
 
@@ -172,7 +179,9 @@ func (a *memoryFillAttack) fillMemory(state *MemoryFillState) {
 	// Generate random value template
 	valueTemplate := generateRandomValue(state.ValueSize)
 
-	var mu sync.Mutex
+	mu, _ := memoryFillMutexes.LoadOrStore(state.KeyPrefix, &sync.Mutex{})
+	mtx := mu.(*sync.Mutex)
+
 	totalBytes := 0
 	maxBytes := state.MaxMemory * 1024 * 1024
 
@@ -193,10 +202,10 @@ func (a *memoryFillAttack) fillMemory(state *MemoryFillState) {
 			continue
 		}
 
-		mu.Lock()
+		mtx.Lock()
 		state.CreatedKeys = append(state.CreatedKeys, keyName)
 		totalBytes += state.ValueSize
-		mu.Unlock()
+		mtx.Unlock()
 
 		keyCounter++
 		time.Sleep(delay)
@@ -237,12 +246,22 @@ func (a *memoryFillAttack) Status(ctx context.Context, state *MemoryFillState) (
 		}
 	}
 
+	var keysCreated int
+	if mu, ok := memoryFillMutexes.Load(state.KeyPrefix); ok {
+		mtx := mu.(*sync.Mutex)
+		mtx.Lock()
+		keysCreated = len(state.CreatedKeys)
+		mtx.Unlock()
+	} else {
+		keysCreated = len(state.CreatedKeys)
+	}
+
 	return &action_kit_api.StatusResult{
 		Completed: completed,
 		Messages: extutil.Ptr([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Keys created: %d, Memory used: %s", len(state.CreatedKeys), memUsed),
+				Message: fmt.Sprintf("Keys created: %d, Memory used: %s", keysCreated, memUsed),
 			},
 		}),
 	}, nil
@@ -254,9 +273,21 @@ func (a *memoryFillAttack) Stop(ctx context.Context, state *MemoryFillState) (*a
 		return nil, fmt.Errorf("failed to create Redis client for cleanup: %w", err)
 	}
 
+	// Copy keys under lock to avoid race with fillMemory goroutine
+	var keysToDelete []string
+	if mu, ok := memoryFillMutexes.Load(state.KeyPrefix); ok {
+		mtx := mu.(*sync.Mutex)
+		mtx.Lock()
+		keysToDelete = make([]string, len(state.CreatedKeys))
+		copy(keysToDelete, state.CreatedKeys)
+		mtx.Unlock()
+	} else {
+		keysToDelete = state.CreatedKeys
+	}
+
 	// Delete all created keys
 	deletedCount := 0
-	for _, key := range state.CreatedKeys {
+	for _, key := range keysToDelete {
 		err := client.Del(ctx, key).Err()
 		if err != nil {
 			log.Warn().Err(err).Str("key", key).Msg("Failed to delete key during cleanup")
@@ -264,6 +295,9 @@ func (a *memoryFillAttack) Stop(ctx context.Context, state *MemoryFillState) (*a
 			deletedCount++
 		}
 	}
+
+	// Clean up the mutex entry
+	memoryFillMutexes.Delete(state.KeyPrefix)
 
 	return &action_kit_api.StopResult{
 		Messages: extutil.Ptr([]action_kit_api.Message{

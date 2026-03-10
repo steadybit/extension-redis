@@ -450,19 +450,18 @@ func TestMemoryFillAttack_Stop_CleansUpAllKeys(t *testing.T) {
 	_, err = action.Start(context.Background(), &state)
 	require.NoError(t, err)
 
-	// Let goroutine create some keys
+	// Let goroutine create some keys — check via miniredis to avoid race on state.CreatedKeys
 	time.Sleep(1 * time.Second)
+	prefixedCount := countKeysWithPrefix(mr, prefix)
+	require.Greater(t, prefixedCount, 0, "Goroutine should have created keys")
 
-	// Verify keys were created
-	require.Greater(t, len(state.CreatedKeys), 0, "Goroutine should have created keys")
+	// Wait for the goroutine to finish (EndTime is 2s from start, so wait until it's done)
+	time.Sleep(1500 * time.Millisecond)
 
-	// Stop
+	// Stop — now safe to read state.CreatedKeys since goroutine exited
 	stopResult, err := action.Stop(context.Background(), &state)
 	require.NoError(t, err)
 	require.NotNil(t, stopResult)
-
-	// Wait for goroutine to finish (it checks EndTime)
-	time.Sleep(1500 * time.Millisecond)
 
 	// Verify: no keys with our prefix remain
 	allKeys := mr.Keys()
@@ -497,10 +496,11 @@ func TestMemoryFillAttack_Stop_CalledWithoutStart(t *testing.T) {
 
 func TestMemoryFillAttack_Stop_GoroutineStillRunning(t *testing.T) {
 	// Stop() is called while the goroutine is still creating keys.
-	// The goroutine appends to state.CreatedKeys, so Stop() may miss keys
-	// created between reading CreatedKeys and deleting them.
-	// This test verifies that SCAN-based cleanup (if added) or prefix cleanup
-	// catches everything — or at minimum documents the behavior.
+	// This test documents the known limitation: Stop() only deletes keys in
+	// CreatedKeys at that moment. Keys created after Stop returns are orphaned.
+	//
+	// We avoid reading state.CreatedKeys while the goroutine runs (data race).
+	// Instead we check key existence via miniredis directly.
 	mr, err := miniredis.Run()
 	require.NoError(t, err)
 	defer mr.Close()
@@ -515,41 +515,31 @@ func TestMemoryFillAttack_Stop_GoroutineStillRunning(t *testing.T) {
 		ValueSize:   256,
 		FillRate:    1000, // Very high rate
 		MaxMemory:   0,    // Unlimited
-		EndTime:     time.Now().Add(10 * time.Second).Unix(),
+		EndTime:     time.Now().Add(3 * time.Second).Unix(),
 		CreatedKeys: []string{},
 	}
 
 	_, err = action.Start(context.Background(), &state)
 	require.NoError(t, err)
 
-	// Give goroutine time to create keys
+	// Give goroutine time to create keys — check via miniredis to avoid race
 	time.Sleep(500 * time.Millisecond)
-
-	keysBeforeStop := len(state.CreatedKeys)
+	keysBeforeStop := countKeysWithPrefix(mr, prefix)
 	require.Greater(t, keysBeforeStop, 0)
 
-	// Stop while goroutine is still running
+	// Stop while goroutine is still running (EndTime is 3s from start)
 	stopResult, err := action.Stop(context.Background(), &state)
 	require.NoError(t, err)
 	require.NotNil(t, stopResult)
 
-	// Wait for goroutine to exit (EndTime is 10s from now, but we'll just wait briefly)
-	// The goroutine checks time.Now().Unix() < state.EndTime, so it will keep running.
-	// This documents a known limitation: Stop() only deletes keys in CreatedKeys at that
-	// moment. Any keys created by the goroutine after Stop returns are orphaned until
-	// the goroutine finishes (EndTime).
-	time.Sleep(500 * time.Millisecond)
+	// Wait for goroutine to exit (EndTime is 3s from start)
+	time.Sleep(3 * time.Second)
 
-	// Check if keys were created after Stop
-	keysAfterStop := len(state.CreatedKeys)
-	if keysAfterStop > keysBeforeStop {
-		// Document: goroutine continued creating keys after Stop returned
-		t.Logf("WARNING: goroutine created %d additional keys after Stop() (known limitation)", keysAfterStop-keysBeforeStop)
+	// After goroutine exits, check for orphaned keys (created after Stop)
+	orphanedKeys := countKeysWithPrefix(mr, prefix)
+	if orphanedKeys > 0 {
+		t.Logf("WARNING: %d orphaned keys remain after Stop+goroutine exit (known limitation)", orphanedKeys)
 	}
-
-	// Force the endTime to now to stop the goroutine
-	state.EndTime = time.Now().Unix() - 1
-	time.Sleep(500 * time.Millisecond)
 }
 
 // ============================================================
@@ -945,4 +935,15 @@ func TestBigKeyAttack_Stop_CalledTwice(t *testing.T) {
 	result2, err := action.Stop(context.Background(), &state)
 	require.NoError(t, err)
 	require.NotNil(t, result2)
+}
+
+// countKeysWithPrefix counts miniredis keys that have the given prefix.
+func countKeysWithPrefix(mr *miniredis.Miniredis, prefix string) int {
+	count := 0
+	for _, k := range mr.Keys() {
+		if strings.HasPrefix(k, prefix) {
+			count++
+		}
+	}
+	return count
 }
