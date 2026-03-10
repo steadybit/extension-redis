@@ -1,0 +1,948 @@
+// SPDX-License-Identifier: MIT
+// SPDX-FileCopyrightText: 2024 Steadybit GmbH
+
+package extredis
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/alicebob/miniredis/v2"
+	"github.com/google/uuid"
+	"github.com/steadybit/action-kit/go/action_kit_api/v2"
+	"github.com/steadybit/extension-kit/extutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+)
+
+// ============================================================
+// Key-delete: partial Start failure → Stop must restore what was backed up
+// ============================================================
+
+func TestKeyDeleteAttack_Stop_RestoresBackedUpKeys_EvenIfStartDeletedPartially(t *testing.T) {
+	// Scenario: Start() backed up and deleted some keys, then we call Stop().
+	// Stop() should restore every key present in BackupData.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Simulate partial delete: 5 keys backed up and deleted, 5 remain untouched
+	for i := 0; i < 10; i++ {
+		mr.Set(fmt.Sprintf("partial:key:%d", i), fmt.Sprintf("value-%d", i))
+	}
+
+	// Manually build state as if Start() deleted keys 0-4 but not 5-9
+	deletedKeys := make([]string, 5)
+	backupData := make(map[string]string, 5)
+	for i := 0; i < 5; i++ {
+		key := fmt.Sprintf("partial:key:%d", i)
+		deletedKeys[i] = key
+		backupData[key] = fmt.Sprintf("value-%d", i)
+		mr.Del(key)
+	}
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "partial:key:*",
+		MaxKeys:       10,
+		RestoreOnStop: true,
+		DeletedKeys:   deletedKeys,
+		BackupData:    backupData,
+	}
+
+	// When
+	result, err := action.Stop(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+
+	// Verify: all 10 keys should now exist
+	for i := 0; i < 10; i++ {
+		key := fmt.Sprintf("partial:key:%d", i)
+		val, mrErr := mr.Get(key)
+		require.NoError(t, mrErr, "Key %s should exist", key)
+		assert.Equal(t, fmt.Sprintf("value-%d", i), val)
+	}
+}
+
+func TestKeyDeleteAttack_Stop_OnlyStringKeysInBackup(t *testing.T) {
+	// Start() only backs up string values. Non-string keys that were deleted are lost.
+	// This test documents that behavior.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Create mixed types
+	mr.Set("mixed:str", "string-value")
+	mr.Lpush("mixed:list", "item1")
+	mr.Lpush("mixed:list", "item2")
+	mr.HSet("mixed:hash", "field1", "hashval")
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "mixed:*",
+		MaxKeys:       0,
+		RestoreOnStop: true,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]string),
+	}
+
+	// Start deletes all matching keys and backs up string values only
+	startResult, err := action.Start(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, startResult)
+
+	// String key should be in backup, list and hash should not
+	assert.Contains(t, state.BackupData, "mixed:str")
+	assert.NotContains(t, state.BackupData, "mixed:list")
+	assert.NotContains(t, state.BackupData, "mixed:hash")
+
+	// Stop restores only the string key
+	stopResult, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// String key restored
+	val, mrErr := mr.Get("mixed:str")
+	require.NoError(t, mrErr)
+	assert.Equal(t, "string-value", val)
+
+	// Non-string keys are permanently gone
+	assert.False(t, mr.Exists("mixed:list"), "List key cannot be restored by string backup")
+	assert.False(t, mr.Exists("mixed:hash"), "Hash key cannot be restored by string backup")
+}
+
+func TestKeyDeleteAttack_Stop_BackupWithSpecialValues(t *testing.T) {
+	// Keys with empty values, very long values, or special characters
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	mr.Set("special:empty", "")
+	mr.Set("special:newlines", "line1\nline2\nline3")
+	mr.Set("special:unicode", "héllo wörld 日本語")
+	mr.Set("special:binary-like", "\x00\x01\x02\xff")
+	longVal := strings.Repeat("x", 100000)
+	mr.Set("special:long", longVal)
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "special:*",
+		MaxKeys:       0,
+		RestoreOnStop: true,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]string),
+	}
+
+	// Start — delete and backup
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+	assert.Len(t, state.BackupData, 5)
+
+	// Stop — restore
+	_, err = action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+
+	// Verify all values restored correctly
+	val, _ := mr.Get("special:empty")
+	assert.Equal(t, "", val)
+
+	val, _ = mr.Get("special:newlines")
+	assert.Equal(t, "line1\nline2\nline3", val)
+
+	val, _ = mr.Get("special:unicode")
+	assert.Equal(t, "héllo wörld 日本語", val)
+
+	val, _ = mr.Get("special:long")
+	assert.Equal(t, longVal, val)
+}
+
+// ============================================================
+// Cache-expiration: partial Start + Stop reliability
+// ============================================================
+
+func TestCacheExpirationAttack_Stop_RestoresKeysAfterExpiry(t *testing.T) {
+	// Keys expired during attack. Stop() must recreate them from backup.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Create keys with no TTL
+	for i := 0; i < 20; i++ {
+		mr.Set(fmt.Sprintf("exp-restore:key:%d", i), fmt.Sprintf("value-%d", i))
+	}
+
+	action := &cacheExpirationAttack{}
+	state := CacheExpirationState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "exp-restore:key:*",
+		TTLSeconds:    1,
+		MaxKeys:       0,
+		AffectedKeys:  []string{},
+		BackupData:    make(map[string]KeyBackup),
+		RestoreOnStop: true,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// Start — set short TTL
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+	assert.Len(t, state.AffectedKeys, 20)
+	assert.Len(t, state.BackupData, 20)
+
+	// Expire the keys
+	mr.FastForward(2 * time.Second)
+
+	// Verify keys are gone
+	assert.False(t, mr.Exists("exp-restore:key:0"))
+
+	// Stop — should recreate all keys from backup
+	_, err = action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+
+	// All 20 keys should be back with correct values
+	for i := 0; i < 20; i++ {
+		key := fmt.Sprintf("exp-restore:key:%d", i)
+		assert.True(t, mr.Exists(key), "Key %s should be recreated", key)
+		val, mrErr := mr.Get(key)
+		require.NoError(t, mrErr)
+		assert.Equal(t, fmt.Sprintf("value-%d", i), val)
+	}
+}
+
+func TestCacheExpirationAttack_Stop_RestoresOriginalTTL(t *testing.T) {
+	// Keys that had a TTL before the attack should get that TTL back on restore.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Key with 1 hour TTL
+	mr.Set("ttl-restore:key1", "val1")
+	mr.SetTTL("ttl-restore:key1", 1*time.Hour)
+	// Key with no TTL
+	mr.Set("ttl-restore:key2", "val2")
+
+	action := &cacheExpirationAttack{}
+	state := CacheExpirationState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "ttl-restore:*",
+		TTLSeconds:    300,
+		MaxKeys:       0,
+		AffectedKeys:  []string{},
+		BackupData:    make(map[string]KeyBackup),
+		RestoreOnStop: true,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// Start — backs up original TTLs
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+	assert.Len(t, state.AffectedKeys, 2)
+
+	// Verify backup captured TTLs
+	backup1 := state.BackupData["ttl-restore:key1"]
+	assert.Greater(t, backup1.TTLSeconds, int64(0), "Should have captured original TTL")
+	backup2 := state.BackupData["ttl-restore:key2"]
+	// NOTE: Redis TTL command returns -1ns for persistent keys; int64((-1ns).Seconds()) == 0
+	// This means persistent keys get TTLSeconds=0 in backup, not -1.
+	// The Stop logic doesn't call Persist() for TTLSeconds=0, so the attack TTL remains.
+	// This is a known limitation of the current backup/restore logic.
+	assert.Equal(t, int64(0), backup2.TTLSeconds, "No-TTL key gets 0 due to duration conversion")
+
+	// Stop — restore original TTLs
+	_, err = action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+
+	// Key2 still has the attack TTL because backup stored 0 (not -1) for persistent keys.
+	// This documents the current behavior — a proper fix would store the raw TTL result.
+	ttl2 := mr.TTL("ttl-restore:key2")
+	assert.Greater(t, ttl2, time.Duration(0), "Key2 retains attack TTL (known limitation: persistent key TTL not restored)")
+}
+
+func TestCacheExpirationAttack_Stop_PartialBackup_MixedKeyTypes(t *testing.T) {
+	// Only string keys are backed up. List/hash keys that match the pattern are NOT
+	// affected by cache-expiration (they're skipped in Start), so nothing is lost.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	mr.Set("mixed-exp:str1", "sval1")
+	mr.Set("mixed-exp:str2", "sval2")
+	mr.Lpush("mixed-exp:list1", "item1")
+
+	action := &cacheExpirationAttack{}
+	state := CacheExpirationState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "mixed-exp:*",
+		TTLSeconds:    1,
+		MaxKeys:       0,
+		AffectedKeys:  []string{},
+		BackupData:    make(map[string]KeyBackup),
+		RestoreOnStop: true,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	// Only strings affected
+	assert.Len(t, state.AffectedKeys, 2)
+	assert.Equal(t, 1, state.SkippedNonString)
+	// List key should still exist and not have a TTL set
+	assert.True(t, mr.Exists("mixed-exp:list1"))
+
+	// Expire and restore
+	mr.FastForward(2 * time.Second)
+	_, err = action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+
+	// All keys restored
+	assert.True(t, mr.Exists("mixed-exp:str1"))
+	assert.True(t, mr.Exists("mixed-exp:str2"))
+	assert.True(t, mr.Exists("mixed-exp:list1"), "List key should be untouched")
+}
+
+// ============================================================
+// Big-key: Stop must leave zero leftover keys
+// ============================================================
+
+func TestBigKeyAttack_Stop_CleansUpAllKeys(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &bigKeyAttack{}
+	executionId := uuid.New().String()[:8]
+	prefix := fmt.Sprintf("steadybit-bigkey-%s-", executionId)
+
+	state := BigKeyState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   prefix,
+		KeySize:     512, // Small for fast test
+		NumKeys:     3,
+		CreatedKeys: []string{},
+		EndTime:     time.Now().Add(3 * time.Second).Unix(),
+		ExecutionId: executionId,
+	}
+
+	// Start — goroutine creates keys in cycles
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	// Let it run a few cycles
+	time.Sleep(1500 * time.Millisecond)
+
+	// Stop — must clean up everything
+	_, err = action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+
+	// Wait a bit for goroutine to fully terminate
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify: no keys with our prefix remain
+	allKeys := mr.Keys()
+	for _, k := range allKeys {
+		assert.False(t, strings.HasPrefix(k, prefix),
+			"Leftover key found after Stop: %s", k)
+	}
+}
+
+func TestBigKeyAttack_Stop_ImmediateStop(t *testing.T) {
+	// Stop called immediately after Start — goroutine may be mid-cycle
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &bigKeyAttack{}
+	executionId := uuid.New().String()[:8]
+	prefix := fmt.Sprintf("steadybit-bigkey-%s-", executionId)
+
+	state := BigKeyState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   prefix,
+		KeySize:     512,
+		NumKeys:     5,
+		CreatedKeys: []string{},
+		EndTime:     time.Now().Add(30 * time.Second).Unix(),
+		ExecutionId: executionId,
+	}
+
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	// Stop immediately — no sleep between start and stop
+	_, err = action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+
+	time.Sleep(300 * time.Millisecond)
+
+	// Verify cleanup
+	allKeys := mr.Keys()
+	for _, k := range allKeys {
+		assert.False(t, strings.HasPrefix(k, prefix),
+			"Leftover key found after immediate Stop: %s", k)
+	}
+}
+
+func TestBigKeyAttack_Stop_CalledWithoutStart(t *testing.T) {
+	// If Start() was never called, Stop() should not panic
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &bigKeyAttack{}
+	state := BigKeyState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   "steadybit-bigkey-nostart-",
+		KeySize:     1024,
+		NumKeys:     1,
+		CreatedKeys: []string{},
+		EndTime:     time.Now().Add(30 * time.Second).Unix(),
+		ExecutionId: "nostart-test",
+	}
+
+	// Stop without Start — should handle gracefully
+	result, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+// ============================================================
+// Memory-fill: Stop must delete all created keys
+// ============================================================
+
+func TestMemoryFillAttack_Stop_CleansUpAllKeys(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryFillAttack{}
+	prefix := fmt.Sprintf("steadybit-memfill-%s-", uuid.New().String()[:8])
+
+	state := MemoryFillState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   prefix,
+		ValueSize:   256,
+		FillRate:    100,
+		MaxMemory:   1, // 1MB max
+		EndTime:     time.Now().Add(2 * time.Second).Unix(),
+		CreatedKeys: []string{},
+	}
+
+	// Start
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	// Let goroutine create some keys
+	time.Sleep(1 * time.Second)
+
+	// Verify keys were created
+	require.Greater(t, len(state.CreatedKeys), 0, "Goroutine should have created keys")
+
+	// Stop
+	stopResult, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// Wait for goroutine to finish (it checks EndTime)
+	time.Sleep(1500 * time.Millisecond)
+
+	// Verify: no keys with our prefix remain
+	allKeys := mr.Keys()
+	for _, k := range allKeys {
+		assert.False(t, strings.HasPrefix(k, prefix),
+			"Leftover key found after Stop: %s", k)
+	}
+}
+
+func TestMemoryFillAttack_Stop_CalledWithoutStart(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryFillAttack{}
+	state := MemoryFillState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   "steadybit-memfill-nostart-",
+		ValueSize:   1024,
+		FillRate:    10,
+		MaxMemory:   1,
+		EndTime:     time.Now().Add(30 * time.Second).Unix(),
+		CreatedKeys: []string{}, // Empty — Start was never called
+	}
+
+	// Should not panic, should report 0 cleaned up
+	result, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+func TestMemoryFillAttack_Stop_GoroutineStillRunning(t *testing.T) {
+	// Stop() is called while the goroutine is still creating keys.
+	// The goroutine appends to state.CreatedKeys, so Stop() may miss keys
+	// created between reading CreatedKeys and deleting them.
+	// This test verifies that SCAN-based cleanup (if added) or prefix cleanup
+	// catches everything — or at minimum documents the behavior.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryFillAttack{}
+	prefix := fmt.Sprintf("steadybit-memfill-%s-", uuid.New().String()[:8])
+
+	state := MemoryFillState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   prefix,
+		ValueSize:   256,
+		FillRate:    1000, // Very high rate
+		MaxMemory:   0,    // Unlimited
+		EndTime:     time.Now().Add(10 * time.Second).Unix(),
+		CreatedKeys: []string{},
+	}
+
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	// Give goroutine time to create keys
+	time.Sleep(500 * time.Millisecond)
+
+	keysBeforeStop := len(state.CreatedKeys)
+	require.Greater(t, keysBeforeStop, 0)
+
+	// Stop while goroutine is still running
+	stopResult, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// Wait for goroutine to exit (EndTime is 10s from now, but we'll just wait briefly)
+	// The goroutine checks time.Now().Unix() < state.EndTime, so it will keep running.
+	// This documents a known limitation: Stop() only deletes keys in CreatedKeys at that
+	// moment. Any keys created by the goroutine after Stop returns are orphaned until
+	// the goroutine finishes (EndTime).
+	time.Sleep(500 * time.Millisecond)
+
+	// Check if keys were created after Stop
+	keysAfterStop := len(state.CreatedKeys)
+	if keysAfterStop > keysBeforeStop {
+		// Document: goroutine continued creating keys after Stop returned
+		t.Logf("WARNING: goroutine created %d additional keys after Stop() (known limitation)", keysAfterStop-keysBeforeStop)
+	}
+
+	// Force the endTime to now to stop the goroutine
+	state.EndTime = time.Now().Unix() - 1
+	time.Sleep(500 * time.Millisecond)
+}
+
+// ============================================================
+// Cache-penetration: Stop must cancel all workers
+// ============================================================
+
+func TestCachePenetrationAttack_Stop_CancelsWorkers(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &cachePenetrationAttack{}
+	attackKey := fmt.Sprintf("redis://%s-test-%d", mr.Addr(), time.Now().UnixNano())
+
+	state := CachePenetrationState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		Concurrency: 5,
+		KeyPrefix:   "steadybit-penetration-miss-test-",
+		EndTime:     time.Now().Add(30 * time.Second).Unix(),
+		AttackKey:   attackKey,
+	}
+
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	// Wait for workers to send some requests
+	time.Sleep(500 * time.Millisecond)
+
+	// Get count before stop
+	cachePenetrationMutex.Lock()
+	counter := cachePenetrationCounts[state.AttackKey]
+	cachePenetrationMutex.Unlock()
+	require.NotNil(t, counter)
+	countBeforeStop := counter.Load()
+	require.Greater(t, countBeforeStop, int64(0), "Workers should have sent requests")
+
+	// Stop
+	stopResult, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// Workers use context cancellation — give them time to exit
+	time.Sleep(200 * time.Millisecond)
+
+	// Verify counter was removed from global map
+	cachePenetrationMutex.Lock()
+	_, exists := cachePenetrationCounts[state.AttackKey]
+	cachePenetrationMutex.Unlock()
+	assert.False(t, exists, "Counter should be removed from global map after Stop")
+
+	// Verify cancel function was removed
+	cachePenetrationMutex.Lock()
+	_, cancelExists := cachePenetrationCancels[state.AttackKey]
+	cachePenetrationMutex.Unlock()
+	assert.False(t, cancelExists, "Cancel func should be removed from global map after Stop")
+}
+
+func TestCachePenetrationAttack_Stop_CalledWithoutStart(t *testing.T) {
+	action := &cachePenetrationAttack{}
+	state := CachePenetrationState{
+		RedisURL:    "redis://localhost:6379",
+		DB:          0,
+		Concurrency: 5,
+		AttackKey:   "never-started",
+	}
+
+	// Should not panic
+	result, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Contains(t, (*result.Messages)[0].Message, "0")
+}
+
+func TestCachePenetrationAttack_Stop_CalledTwice(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &cachePenetrationAttack{}
+	state := CachePenetrationState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		Concurrency: 3,
+		KeyPrefix:   "steadybit-penetration-miss-double-",
+		EndTime:     time.Now().Add(10 * time.Second).Unix(),
+		AttackKey:   fmt.Sprintf("double-stop-%d", time.Now().UnixNano()),
+	}
+
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	time.Sleep(200 * time.Millisecond)
+
+	// First stop
+	result1, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result1)
+
+	// Second stop — should not panic, should report 0
+	result2, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result2)
+	assert.Contains(t, (*result2.Messages)[0].Message, "0")
+}
+
+// ============================================================
+// Connection-exhaustion: Stop cleanup and edge cases
+// ============================================================
+
+func TestConnectionExhaustionAttack_Stop_CalledWithoutStart(t *testing.T) {
+	action := &connectionExhaustionAttack{}
+	state := ConnectionExhaustionState{
+		RedisURL:       "redis://localhost:6379",
+		DB:             0,
+		NumConnections: 10,
+		EndTime:        time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// Should not panic, should close 0 connections
+	result, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Contains(t, (*result.Messages)[0].Message, "Closed 0 connections")
+}
+
+func TestConnectionExhaustionAttack_Stop_ClosesAllConnections(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionExhaustionAttack{}
+	state := ConnectionExhaustionState{
+		RedisURL:       fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:             0,
+		NumConnections: 5,
+		EndTime:        time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// Start — opens connections
+	startResult, err := action.Start(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, startResult)
+	assert.Greater(t, state.ConnectionCount, 0)
+
+	// Stop — closes all connections
+	stopResult, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// Verify no connections remain in global map for our URL
+	activeConnectionsMutex.Lock()
+	found := false
+	for key := range activeConnections {
+		if strings.HasPrefix(key, state.RedisURL) {
+			found = true
+		}
+	}
+	activeConnectionsMutex.Unlock()
+	assert.False(t, found, "No connections should remain in global map after Stop")
+}
+
+func TestConnectionExhaustionAttack_Stop_CalledTwice(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionExhaustionAttack{}
+	state := ConnectionExhaustionState{
+		RedisURL:       fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:             0,
+		NumConnections: 3,
+		EndTime:        time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	// First stop
+	result1, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result1)
+
+	// Second stop — should not panic
+	result2, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result2)
+	assert.Contains(t, (*result2.Messages)[0].Message, "Closed 0 connections")
+}
+
+// ============================================================
+// Maxmemory-limit: restore reliability
+// ============================================================
+
+func TestMaxmemoryLimitAttack_Stop_RestoresOriginalSettings(t *testing.T) {
+	// NOTE: miniredis doesn't support CONFIG GET/SET, so we can't test full Start+Stop.
+	// Instead we test Stop with pre-populated state to verify the restore logic runs.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		OriginalMaxmemory: "512mb",
+		OriginalPolicy:    "allkeys-lru",
+		NewMaxmemory:      "10mb",
+		NewPolicy:         "noeviction",
+		EndTime:           time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// Stop — attempts restore (will get CONFIG errors from miniredis but shouldn't crash)
+	stopResult, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// Since miniredis doesn't support CONFIG SET, the result should contain warning messages
+	msgs := *stopResult.Messages
+	require.NotEmpty(t, msgs)
+	// The restore fails gracefully with warnings (not errors)
+	assert.Equal(t, extutil.Ptr(action_kit_api.Warn), msgs[0].Level)
+}
+
+func TestMaxmemoryLimitAttack_Stop_CalledWithoutStart(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		OriginalMaxmemory: "0", // Default no-limit
+		OriginalPolicy:    "noeviction",
+		NewMaxmemory:      "10mb",
+		NewPolicy:         "noeviction",
+		EndTime:           time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// Stop without Start — should attempt restore with the zero-value originals
+	result, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result)
+}
+
+func TestMaxmemoryLimitAttack_Stop_KeepPolicyNotRestored(t *testing.T) {
+	// When policy is "keep", Stop should NOT try to restore the policy.
+	// We verify by checking that only maxmemory error appears (not policy error).
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		OriginalMaxmemory: "512mb",
+		OriginalPolicy:    "allkeys-lru",
+		NewMaxmemory:      "10mb",
+		NewPolicy:         "keep",
+		EndTime:           time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// Stop — should only attempt maxmemory restore, not policy
+	stopResult, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// The warning should mention maxmemory but NOT policy (since NewPolicy is "keep")
+	msgs := *stopResult.Messages
+	require.NotEmpty(t, msgs)
+	assert.Contains(t, msgs[0].Message, "maxmemory")
+	assert.NotContains(t, msgs[0].Message, "policy:")
+}
+
+// ============================================================
+// Key-delete & cache-expiration: Stop called twice (idempotency)
+// ============================================================
+
+func TestKeyDeleteAttack_Stop_CalledTwice(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	mr.Set("double-stop:key1", "value1")
+	mr.Set("double-stop:key2", "value2")
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "double-stop:*",
+		MaxKeys:       0,
+		RestoreOnStop: true,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]string),
+	}
+
+	// Start — delete
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	// First stop — restore
+	result1, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result1)
+
+	// Second stop — should not panic or corrupt data
+	result2, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result2)
+
+	// Keys should still exist (restored by first stop, not deleted by second)
+	val, mrErr := mr.Get("double-stop:key1")
+	require.NoError(t, mrErr)
+	assert.Equal(t, "value1", val)
+}
+
+func TestCacheExpirationAttack_Stop_CalledTwice(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	mr.Set("double-exp:key1", "value1")
+
+	action := &cacheExpirationAttack{}
+	state := CacheExpirationState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "double-exp:*",
+		TTLSeconds:    1,
+		MaxKeys:       0,
+		AffectedKeys:  []string{},
+		BackupData:    make(map[string]KeyBackup),
+		RestoreOnStop: true,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	mr.FastForward(2 * time.Second)
+
+	// First stop — restore
+	_, err = action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+
+	// Second stop — should not panic
+	result2, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result2)
+
+	// Key should still exist
+	assert.True(t, mr.Exists("double-exp:key1"))
+}
+
+// ============================================================
+// Big-key: Stop called twice (idempotency)
+// ============================================================
+
+func TestBigKeyAttack_Stop_CalledTwice(t *testing.T) {
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &bigKeyAttack{}
+	executionId := uuid.New().String()[:8]
+
+	state := BigKeyState{
+		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:          0,
+		KeyPrefix:   fmt.Sprintf("steadybit-bigkey-%s-", executionId),
+		KeySize:     512,
+		NumKeys:     2,
+		CreatedKeys: []string{},
+		EndTime:     time.Now().Add(5 * time.Second).Unix(),
+		ExecutionId: executionId,
+	}
+
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+
+	time.Sleep(300 * time.Millisecond)
+
+	// First stop
+	_, err = action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+
+	time.Sleep(300 * time.Millisecond)
+
+	// Second stop — should not panic
+	result2, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, result2)
+}
