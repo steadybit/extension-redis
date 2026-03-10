@@ -4,12 +4,10 @@ manifest should match snapshot with default values:
     kind: Deployment
     metadata:
       labels:
-        app.kubernetes.io/instance: RELEASE-NAME
-        app.kubernetes.io/managed-by: Helm
-        app.kubernetes.io/name: steadybit-extension-redis
-        app.kubernetes.io/version: v0.0.0
-        helm.sh/chart: steadybit-extension-redis-1.0.3
+        steadybit.com/discovery-disabled: "true"
+        steadybit.com/extension: "true"
       name: RELEASE-NAME-steadybit-extension-redis
+      namespace: NAMESPACE
     spec:
       replicas: 1
       selector:
@@ -18,12 +16,14 @@ manifest should match snapshot with default values:
           app.kubernetes.io/name: steadybit-extension-redis
       template:
         metadata:
-          annotations: null
+          annotations:
+            oneagent.dynatrace.com/injection: "false"
           labels:
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: steadybit-extension-redis
+            steadybit.com/discovery-disabled: "true"
+            steadybit.com/extension: "true"
         spec:
-          automountServiceAccountToken: false
           containers:
             - env:
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
@@ -36,37 +36,28 @@ manifest should match snapshot with default values:
                 failureThreshold: 5
                 httpGet:
                   path: /health/liveness
-                  port: health
+                  port: 8084
                 initialDelaySeconds: 10
                 periodSeconds: 10
                 successThreshold: 1
                 timeoutSeconds: 5
-              name: steadybit-extension-redis
-              ports:
-                - containerPort: 8083
-                  name: http
-                  protocol: TCP
-                - containerPort: 8084
-                  name: health
-                  protocol: TCP
+              name: extension
               readinessProbe:
                 failureThreshold: 3
                 httpGet:
                   path: /health/readiness
-                  port: health
+                  port: 8084
                 initialDelaySeconds: 10
                 periodSeconds: 10
                 successThreshold: 1
                 timeoutSeconds: 1
               resources:
                 limits:
-                  cpu: 300m
-                  ephemeral-storage: 1Gi
+                  cpu: 200m
                   memory: 256Mi
                 requests:
-                  cpu: 100m
-                  ephemeral-storage: 128Mi
-                  memory: 64Mi
+                  cpu: 50m
+                  memory: 32Mi
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
@@ -75,13 +66,10 @@ manifest should match snapshot with default values:
                 readOnlyRootFilesystem: true
               volumeMounts: null
           securityContext:
-            fsGroup: 10000
-            runAsGroup: 10000
             runAsNonRoot: true
-            runAsUser: 10000
             seccompProfile:
               type: RuntimeDefault
-          serviceAccountName: RELEASE-NAME-steadybit-extension-redis
+          serviceAccountName: steadybit-extension-grafana
           volumes: null
 manifest should match snapshot with global priority class:
   1: |
@@ -89,12 +77,10 @@ manifest should match snapshot with global priority class:
     kind: Deployment
     metadata:
       labels:
-        app.kubernetes.io/instance: RELEASE-NAME
-        app.kubernetes.io/managed-by: Helm
-        app.kubernetes.io/name: steadybit-extension-redis
-        app.kubernetes.io/version: v0.0.0
-        helm.sh/chart: steadybit-extension-redis-1.0.3
+        steadybit.com/discovery-disabled: "true"
+        steadybit.com/extension: "true"
       name: RELEASE-NAME-steadybit-extension-redis
+      namespace: NAMESPACE
     spec:
       replicas: 1
       selector:
@@ -103,12 +89,14 @@ manifest should match snapshot with global priority class:
           app.kubernetes.io/name: steadybit-extension-redis
       template:
         metadata:
-          annotations: null
+          annotations:
+            oneagent.dynatrace.com/injection: "false"
           labels:
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: steadybit-extension-redis
+            steadybit.com/discovery-disabled: "true"
+            steadybit.com/extension: "true"
         spec:
-          automountServiceAccountToken: false
           containers:
             - env:
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
@@ -121,37 +109,28 @@ manifest should match snapshot with global priority class:
                 failureThreshold: 5
                 httpGet:
                   path: /health/liveness
-                  port: health
+                  port: 8084
                 initialDelaySeconds: 10
                 periodSeconds: 10
                 successThreshold: 1
                 timeoutSeconds: 5
-              name: steadybit-extension-redis
-              ports:
-                - containerPort: 8083
-                  name: http
-                  protocol: TCP
-                - containerPort: 8084
-                  name: health
-                  protocol: TCP
+              name: extension
               readinessProbe:
                 failureThreshold: 3
                 httpGet:
                   path: /health/readiness
-                  port: health
+                  port: 8084
                 initialDelaySeconds: 10
                 periodSeconds: 10
                 successThreshold: 1
                 timeoutSeconds: 1
               resources:
                 limits:
-                  cpu: 300m
-                  ephemeral-storage: 1Gi
+                  cpu: 200m
                   memory: 256Mi
                 requests:
-                  cpu: 100m
-                  ephemeral-storage: 128Mi
-                  memory: 64Mi
+                  cpu: 50m
+                  memory: 32Mi
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
@@ -161,13 +140,10 @@ manifest should match snapshot with global priority class:
               volumeMounts: null
           priorityClassName: my-global-priority-class
           securityContext:
-            fsGroup: 10000
-            runAsGroup: 10000
             runAsNonRoot: true
-            runAsUser: 10000
             seccompProfile:
               type: RuntimeDefault
-          serviceAccountName: RELEASE-NAME-steadybit-extension-redis
+          serviceAccountName: steadybit-extension-grafana
           volumes: null
 manifest should match snapshot with priority class:
   1: |
@@ -175,12 +151,10 @@ manifest should match snapshot with priority class:
     kind: Deployment
     metadata:
       labels:
-        app.kubernetes.io/instance: RELEASE-NAME
-        app.kubernetes.io/managed-by: Helm
-        app.kubernetes.io/name: steadybit-extension-redis
-        app.kubernetes.io/version: v0.0.0
-        helm.sh/chart: steadybit-extension-redis-1.0.3
+        steadybit.com/discovery-disabled: "true"
+        steadybit.com/extension: "true"
       name: RELEASE-NAME-steadybit-extension-redis
+      namespace: NAMESPACE
     spec:
       replicas: 1
       selector:
@@ -189,12 +163,14 @@ manifest should match snapshot with priority class:
           app.kubernetes.io/name: steadybit-extension-redis
       template:
         metadata:
-          annotations: null
+          annotations:
+            oneagent.dynatrace.com/injection: "false"
           labels:
             app.kubernetes.io/instance: RELEASE-NAME
             app.kubernetes.io/name: steadybit-extension-redis
+            steadybit.com/discovery-disabled: "true"
+            steadybit.com/extension: "true"
         spec:
-          automountServiceAccountToken: false
           containers:
             - env:
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
@@ -207,37 +183,28 @@ manifest should match snapshot with priority class:
                 failureThreshold: 5
                 httpGet:
                   path: /health/liveness
-                  port: health
+                  port: 8084
                 initialDelaySeconds: 10
                 periodSeconds: 10
                 successThreshold: 1
                 timeoutSeconds: 5
-              name: steadybit-extension-redis
-              ports:
-                - containerPort: 8083
-                  name: http
-                  protocol: TCP
-                - containerPort: 8084
-                  name: health
-                  protocol: TCP
+              name: extension
               readinessProbe:
                 failureThreshold: 3
                 httpGet:
                   path: /health/readiness
-                  port: health
+                  port: 8084
                 initialDelaySeconds: 10
                 periodSeconds: 10
                 successThreshold: 1
                 timeoutSeconds: 1
               resources:
                 limits:
-                  cpu: 300m
-                  ephemeral-storage: 1Gi
+                  cpu: 200m
                   memory: 256Mi
                 requests:
-                  cpu: 100m
-                  ephemeral-storage: 128Mi
-                  memory: 64Mi
+                  cpu: 50m
+                  memory: 32Mi
               securityContext:
                 allowPrivilegeEscalation: false
                 capabilities:
@@ -247,11 +214,8 @@ manifest should match snapshot with priority class:
               volumeMounts: null
           priorityClassName: my-priority-class
           securityContext:
-            fsGroup: 10000
-            runAsGroup: 10000
             runAsNonRoot: true
-            runAsUser: 10000
             seccompProfile:
               type: RuntimeDefault
-          serviceAccountName: RELEASE-NAME-steadybit-extension-redis
+          serviceAccountName: steadybit-extension-grafana
           volumes: null

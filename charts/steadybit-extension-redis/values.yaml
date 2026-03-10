@@ -26,56 +26,75 @@ extension:
 
 # Image configuration
 image:
-  name: ghcr.io/steadybit/extension-redis
-  # tag defaults to Chart appVersion if not specified
-  tag: ""
+  # image.registry -- The container registry to use. Defaults to global.image.registry or ghcr.io.
+  registry: null
+  # image.name -- The container image to use for the Steadybit redis extension.
+  name: steadybit/extension-redis
+  # image.tag -- tag name of the extension-redis container image to use. Defaults to appVersion of this chart.
+  # See https://github.com/steadybit/extension-redis/pkgs/container/extension-redis/versions for all tags.
+  tag: null
+  # image.pullPolicy -- Specifies when to pull the image container.
   pullPolicy: IfNotPresent
+  # image.pullSecrets -- List of image pull secret names.
+  pullSecrets: []
 
-# Image pull secrets
-imagePullSecrets: []
+tls:
+  server:
+    certificate:
+      # tls.server.certificate.fromSecret -- The name of the secret containing the TLS certificate for the extension.
+      #  The extension will then create an HTTPS server instead of an HTTP server.
+      fromSecret: null
+      # tls.server.certificate.path --Path to the TLS certificate for the extension.
+      path: null
+      key:
+        # tls.server.certificate.key-path --Path to the key for the TLS certificate for the extension.
+        path: null
+  client:
+    certificates:
+      # tls.client.certificates.fromSecrets -- List of secret names containing TLS certificates for the extension to trust.
+      #  The extension will require clitls:
+      #  server:
+      #    certificate:
+      #      # tls.server.certificate.fromSecret -- The name of the secret containing the TLS certificate for the extension.
+      #      #  The extension will then create an HTTPS server instead of an HTTP server.
+      #      fromSecret: null
+      #      # tls.server.certificate.path --Path to the TLS certificate for the extension.
+      #      path: null
+      #      key:
+      #        # tls.server.certificate.key-path --Path to the key for the TLS certificate for the extension.
+      #        path: null
+      #  client:
+      #    certificates:
+      #      # tls.client.certificates.fromSecrets -- List of secret names containing TLS certificates for the extension to trust.
+      #      #  The extension will require clients to authenticate using one of these certificates. In essence, this will enable mutual TLS.
+      #      fromSecrets: []
+      #      # tls.client.certificates.paths -- List paths containing TLS certificates for the extension to trust.
+      #      #  The extension will require clients to authenticate using one of these certificates. In essence, this will enable mutual TLS.
+      #      paths: []
+      #logging:
+      #  # logging.level -- The active log level. Valid values are: TRACE, DEBUG, INFO, WARN, ERROR
+      #  level: INFO
+      #  # logging.format -- The format of the log entries. One of text, json
+      #  format: textents to authenticate using one of these certificates. In essence, this will enable mutual TLS.
+      fromSecrets: []
+      # tls.client.certificates.paths -- List paths containing TLS certificates for the extension to trust.
+      #  The extension will require clients to authenticate using one of these certificates. In essence, this will enable mutual TLS.
+      paths: []
+logging:
+  # logging.level -- The active log level. Valid values are: TRACE, DEBUG, INFO, WARN, ERROR
+  level: INFO
+  # logging.format -- The format of the log entries. One of text, json
+  format: text
 
-# Pod annotations
-podAnnotations: {}
-
-# Pod labels
-podLabels: {}
-
-# Pod security context
-podSecurityContext:
-  runAsNonRoot: true
-  runAsUser: 10000
-  runAsGroup: 10000
-  fsGroup: 10000
-  seccompProfile:
-    type: RuntimeDefault
-
-# Container security context
-securityContext:
-  readOnlyRootFilesystem: true
-  allowPrivilegeEscalation: false
-  capabilities:
-    drop:
-      - ALL
-
-# Resources
-resources:
-  requests:
-    memory: "64Mi"
-    cpu: "100m"
-    ephemeral-storage: "128Mi"
-  limits:
-    memory: "256Mi"
-    cpu: "300m"
-    ephemeral-storage: "1Gi"
-
-# Probes
 probes:
+  # probes.readiness.* -- Configuration of the Kubernetes readiness probe
   readiness:
     initialDelaySeconds: 10
     periodSeconds: 10
     timeoutSeconds: 1
     failureThreshold: 3
     successThreshold: 1
+  # probes.liveness.* -- Configuration of the Kubernetes liveness probe
   liveness:
     initialDelaySeconds: 10
     periodSeconds: 10
@@ -83,42 +102,84 @@ probes:
     failureThreshold: 5
     successThreshold: 1
 
-# Service account
-serviceAccount:
-  create: true
-  name: ""
-  annotations: {}
+resources:
+  requests:
+    # resources.requests.memory -- The minimal amount of memory needed
+    memory: "32Mi"
+    # resources.requests.cpu -- The minimal amount of cpu shares needed
+    cpu: "50m"
+  limits:
+    # resources.limits.memory -- The limit of memory to be used
+    memory: "256Mi"
+    # resources.limits.cpu -- The limit of cpu share to be used during its interval
+    cpu: "200m"
 
-# Node selector
+serviceAccount:
+  # serviceAccount.create -- Specifies whether a ServiceAccount should be created.
+  create: true
+  # serviceAccount.name -- The name of the ServiceAccount to use.
+  name: steadybit-extension-grafana
+
+# extra labels to apply to the Kubernetes resources
+extraLabels: {}
+
+# deploymentAnnotations -- Additional annotations to be added to the deployment.
+deploymentAnnotations: {}
+
+# podAnnotations -- Additional annotations to be added to the pods.
+podAnnotations: {}
+
+# podLabels -- Additional labels to be added to the pods.
+podLabels: {}
+
+# nodeSelector -- Node labels for pod assignment
 nodeSelector: {}
 
-# Tolerations
+# tolerations -- Tolerations to influence pod assignment
 tolerations: []
 
-# Affinity
+# topologySpreadConstraints -- Spread constraints to influence pod assignment.
+# https://kubernetes.io/docs/concepts/workloads/pods/pod-topology-spread-constraints/
+topologySpreadConstraints: []
+
+# affinity -- Affinities to influence pod assignment.
 affinity: {}
 
 # priorityClassName -- Priority class used to influence pod scheduling priority.
 priorityClassName: null
 
-# TLS configuration
-tls:
-  server:
-    # Enable TLS for the extension server
-    enabled: false
-    # Existing secret with TLS certificate
-    certificate:
-      fromSecret: ""
-      path: ""
-    key:
-      fromSecret: ""
-      path: ""
+# podSecurityContext -- SecurityContext to apply to the pod.
+podSecurityContext:
+  seccompProfile:
+    type: RuntimeDefault
+  runAsNonRoot: true
 
-# Extra environment variables
+# containerSecurityContext -- SecurityContext to apply to the container.
+containerSecurityContext:
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# extraEnv -- Array with extra environment variables to add to the container
+# e.g:
+# extraEnv:
+#   - name: FOO
+#     value: "bar"
 extraEnv: []
 
-# Extra volume mounts
-extraVolumeMounts: []
+# extraEnvFrom -- Array with extra environment variables sources to add to the container
+# e.g:
+# extraEnvFrom:
+#  - configMapRef:
+#    name: env-configmap
+#  - secretRef:
+#    name: env-secrets
+extraEnvFrom: []
 
-# Extra volumes
-extraVolumes: []
+discovery:
+  attributes:
+    excludes:
+      # discovery.attributes.excludes.alertrule -- List of attributes to exclude from discovery.
+      alertrule: []
