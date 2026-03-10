@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/action-kit/go/action_kit_test/e2e"
 	actValidate "github.com/steadybit/action-kit/go/action_kit_test/validate"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_api"
@@ -41,6 +42,9 @@ func TestWithMinikube(t *testing.T) {
 			{Name: "validate actions", Test: validateActions},
 			{Name: "discover instances", Test: testDiscoverInstances},
 			{Name: "discover databases", Test: testDiscoverDatabases},
+			{Name: "key delete high volume", Test: testKeyDeleteHighVolume},
+			{Name: "key delete high volume with max keys", Test: testKeyDeleteHighVolumeWithMaxKeys},
+			{Name: "cache expiration high volume", Test: testCacheExpirationHighVolume},
 		},
 	)
 }
@@ -78,6 +82,192 @@ func testDiscoverDatabases(t *testing.T, _ *e2e.Minikube, e *e2e.Extension) {
 	assert.Equal(t, "com.steadybit.extension_redis.database", target.TargetType)
 	assert.NotEmpty(t, target.Attributes["redis.host"])
 	assert.NotEmpty(t, target.Attributes["redis.database.index"])
+}
+
+func testKeyDeleteHighVolume(t *testing.T, m *e2e.Minikube, e *e2e.Extension) {
+	// Populate Redis with a large number of keys (forces multiple SCAN iterations)
+	populateKeys(t, m, "highvol:del:", 2000)
+	defer cleanupKeys(m, "highvol:del:*")
+
+	// Verify keys were created
+	count := countKeys(t, m, "highvol:del:*")
+	require.Equal(t, 2000, count, "Expected 2000 keys to be created")
+
+	target := &action_kit_api.Target{
+		Attributes: map[string][]string{
+			"redis.url":            {"redis://my-redis-master.default.svc.cluster.local:6379"},
+			"redis.database.index": {"0"},
+		},
+	}
+
+	config := map[string]interface{}{
+		"duration":      30000,
+		"pattern":       "highvol:del:*",
+		"maxKeys":       0, // Unlimited - delete all
+		"restoreOnStop": true,
+	}
+
+	// RunAction handles the full prepare/start/status/stop lifecycle
+	execution, err := e.RunAction("com.steadybit.extension_redis.database.key-delete", target, config, nil)
+	require.NoError(t, err)
+
+	err = execution.Wait()
+	require.NoError(t, err)
+
+	// After stop with restoreOnStop=true, keys should be restored
+	count = countKeys(t, m, "highvol:del:*")
+	assert.Equal(t, 2000, count, "All keys should be restored after stop")
+}
+
+func testKeyDeleteHighVolumeWithMaxKeys(t *testing.T, m *e2e.Minikube, e *e2e.Extension) {
+	// Populate Redis with many keys
+	populateKeys(t, m, "highvol:limited:", 2000)
+	defer cleanupKeys(m, "highvol:limited:*")
+
+	target := &action_kit_api.Target{
+		Attributes: map[string][]string{
+			"redis.url":            {"redis://my-redis-master.default.svc.cluster.local:6379"},
+			"redis.database.index": {"0"},
+		},
+	}
+
+	config := map[string]interface{}{
+		"duration":      10000,
+		"pattern":       "highvol:limited:*",
+		"maxKeys":       500,
+		"restoreOnStop": false,
+	}
+
+	execution, err := e.RunAction("com.steadybit.extension_redis.database.key-delete", target, config, nil)
+	require.NoError(t, err)
+
+	err = execution.Wait()
+	require.NoError(t, err)
+
+	// Verify only maxKeys were deleted (remaining = 2000 - 500 = 1500)
+	count := countKeys(t, m, "highvol:limited:*")
+	assert.Equal(t, 1500, count, "Only 500 keys should be deleted, 1500 remaining")
+}
+
+func testCacheExpirationHighVolume(t *testing.T, m *e2e.Minikube, e *e2e.Extension) {
+	// Populate Redis with many keys
+	populateKeys(t, m, "highvol:exp:", 2000)
+	defer cleanupKeys(m, "highvol:exp:*")
+
+	target := &action_kit_api.Target{
+		Attributes: map[string][]string{
+			"redis.url":            {"redis://my-redis-master.default.svc.cluster.local:6379"},
+			"redis.database.index": {"0"},
+		},
+	}
+
+	config := map[string]interface{}{
+		"duration":      10000,
+		"pattern":       "highvol:exp:*",
+		"ttl":           300,
+		"maxKeys":       0,
+		"restoreOnStop": false,
+	}
+
+	execution, err := e.RunAction("com.steadybit.extension_redis.database.cache-expiration", target, config, nil)
+	require.NoError(t, err)
+
+	err = execution.Wait()
+	require.NoError(t, err)
+
+	// Verify TTL is set on keys (spot check a few)
+	for _, idx := range []int{0, 500, 999, 1500, 1999} {
+		key := fmt.Sprintf("highvol:exp:%04d", idx)
+		ttl := getKeyTTL(t, m, key)
+		assert.Greater(t, ttl, 0, "Key %s should have a TTL set", key)
+	}
+}
+
+// populateKeys creates count keys with the given prefix using a Redis pipeline
+func populateKeys(t *testing.T, m *e2e.Minikube, prefix string, count int) {
+	t.Helper()
+	// Use a pipeline command to create keys in batches to avoid timeout
+	batchSize := 500
+	for i := 0; i < count; i += batchSize {
+		end := i + batchSize
+		if end > count {
+			end = count
+		}
+		// Build MSET args: key1 value1 key2 value2 ...
+		args := []string{
+			"kubectl", "--context", m.Profile, "-n", "default",
+			"exec", "my-redis-master-0", "--",
+			"redis-cli", "-a", "redis-password", "MSET",
+		}
+		for j := i; j < end; j++ {
+			args = append(args, fmt.Sprintf("%s%04d", prefix, j), fmt.Sprintf("value-%d", j))
+		}
+		out, err := exec.Command(args[0], args[1:]...).CombinedOutput()
+		require.NoError(t, err, "Failed to create keys batch %d-%d: %s", i, end, string(out))
+	}
+}
+
+// countKeys returns the number of keys matching the pattern
+func countKeys(t *testing.T, m *e2e.Minikube, pattern string) int {
+	t.Helper()
+	cmd := exec.Command(
+		"kubectl", "--context", m.Profile, "-n", "default",
+		"exec", "my-redis-master-0", "--",
+		"redis-cli", "-a", "redis-password",
+		"EVAL", fmt.Sprintf("local keys = redis.call('KEYS', '%s') return #keys", pattern), "0",
+	)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "Failed to count keys: %s", string(out))
+
+	var count int
+	// Parse the integer from output (ignoring the auth warning line)
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Warning") {
+			continue
+		}
+		_, err := fmt.Sscanf(line, "%d", &count)
+		if err == nil {
+			return count
+		}
+	}
+	return 0
+}
+
+// getKeyTTL returns the TTL in seconds of a key (-1 = no TTL, -2 = key doesn't exist)
+func getKeyTTL(t *testing.T, m *e2e.Minikube, key string) int {
+	t.Helper()
+	cmd := exec.Command(
+		"kubectl", "--context", m.Profile, "-n", "default",
+		"exec", "my-redis-master-0", "--",
+		"redis-cli", "-a", "redis-password",
+		"TTL", key,
+	)
+	out, err := cmd.CombinedOutput()
+	require.NoError(t, err, "Failed to get TTL for %s: %s", key, string(out))
+
+	var ttl int
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" || strings.HasPrefix(line, "Warning") {
+			continue
+		}
+		_, err := fmt.Sscanf(line, "%d", &ttl)
+		if err == nil {
+			return ttl
+		}
+	}
+	return -2
+}
+
+// cleanupKeys deletes all keys matching the pattern
+func cleanupKeys(m *e2e.Minikube, pattern string) {
+	exec.Command(
+		"kubectl", "--context", m.Profile, "-n", "default",
+		"exec", "my-redis-master-0", "--",
+		"redis-cli", "-a", "redis-password",
+		"EVAL", fmt.Sprintf("local keys = redis.call('KEYS', '%s') if #keys > 0 then return redis.call('DEL', unpack(keys)) end return 0", pattern), "0",
+	).Run()
 }
 
 func helmInstallRedis(minikube *e2e.Minikube) error {

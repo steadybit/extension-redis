@@ -306,6 +306,169 @@ func TestCacheExpirationAttack_Status_Completed(t *testing.T) {
 	assert.True(t, result.Completed)
 }
 
+func TestCacheExpirationAttack_Start_LargeNumberOfKeys(t *testing.T) {
+	// Given - Redis with many string keys that require multiple SCAN iterations
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	keyCount := 1500
+	for i := 0; i < keyCount; i++ {
+		mr.Set(fmt.Sprintf("expire:key:%04d", i), fmt.Sprintf("value-%d", i))
+	}
+
+	action := &cacheExpirationAttack{}
+	state := CacheExpirationState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "expire:key:*",
+		TTLSeconds:    300,
+		MaxKeys:       0, // Unlimited
+		AffectedKeys:  []string{},
+		BackupData:    make(map[string]KeyBackup),
+		RestoreOnStop: false,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, state.AffectedKeys, keyCount, "All %d string keys should have TTL set", keyCount)
+	assert.Equal(t, 0, state.SkippedNonString)
+
+	// Verify TTL is set on all keys
+	for i := 0; i < keyCount; i++ {
+		key := fmt.Sprintf("expire:key:%04d", i)
+		ttl := mr.TTL(key)
+		assert.Greater(t, ttl, time.Duration(0), "Key %s should have a TTL set", key)
+	}
+}
+
+func TestCacheExpirationAttack_Start_LargeNumberOfKeys_WithMaxKeys(t *testing.T) {
+	// Given - Redis with many keys but maxKeys limits the affected count
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	keyCount := 1500
+	for i := 0; i < keyCount; i++ {
+		mr.Set(fmt.Sprintf("limited-expire:key:%04d", i), fmt.Sprintf("value-%d", i))
+	}
+
+	action := &cacheExpirationAttack{}
+	maxKeys := 200
+	state := CacheExpirationState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "limited-expire:key:*",
+		TTLSeconds:    300,
+		MaxKeys:       maxKeys,
+		AffectedKeys:  []string{},
+		BackupData:    make(map[string]KeyBackup),
+		RestoreOnStop: false,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, state.AffectedKeys, maxKeys, "Only %d keys should be affected due to maxKeys limit", maxKeys)
+}
+
+func TestCacheExpirationAttack_Start_LargeNumberOfKeys_WithRestoreOnStop(t *testing.T) {
+	// Given - Redis with many keys, all backed up and restored
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	keyCount := 500
+	for i := 0; i < keyCount; i++ {
+		mr.Set(fmt.Sprintf("restore-expire:key:%04d", i), fmt.Sprintf("value-%d", i))
+	}
+
+	action := &cacheExpirationAttack{}
+	state := CacheExpirationState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "restore-expire:key:*",
+		TTLSeconds:    1,
+		MaxKeys:       0,
+		AffectedKeys:  []string{},
+		BackupData:    make(map[string]KeyBackup),
+		RestoreOnStop: true,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When - Start
+	startResult, err := action.Start(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, startResult)
+	assert.Len(t, state.AffectedKeys, keyCount)
+	assert.Len(t, state.BackupData, keyCount)
+
+	// Let keys expire in miniredis
+	mr.FastForward(2 * time.Second)
+
+	// When - Stop (restores all keys)
+	stopResult, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// Then - verify all keys are restored with correct values
+	for i := 0; i < keyCount; i++ {
+		key := fmt.Sprintf("restore-expire:key:%04d", i)
+		assert.True(t, mr.Exists(key), "Key %s should exist after restore", key)
+		val, err := mr.Get(key)
+		require.NoError(t, err, "Key %s should be readable after restore", key)
+		assert.Equal(t, fmt.Sprintf("value-%d", i), val, "Key %s should have correct value", key)
+	}
+}
+
+func TestCacheExpirationAttack_Start_LargeNumberOfKeys_MixedTypes(t *testing.T) {
+	// Given - Redis with many keys of different types, only strings should be affected
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	stringCount := 1000
+	for i := 0; i < stringCount; i++ {
+		mr.Set(fmt.Sprintf("mixed:key:%04d", i), fmt.Sprintf("value-%d", i))
+	}
+	// Add non-string keys (lists)
+	listCount := 300
+	for i := 0; i < listCount; i++ {
+		mr.Lpush(fmt.Sprintf("mixed:key:list:%04d", i), "item1")
+	}
+
+	action := &cacheExpirationAttack{}
+	state := CacheExpirationState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "mixed:key:*",
+		TTLSeconds:    300,
+		MaxKeys:       0,
+		AffectedKeys:  []string{},
+		BackupData:    make(map[string]KeyBackup),
+		RestoreOnStop: false,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, state.AffectedKeys, stringCount, "Only string keys should be affected")
+	assert.Equal(t, listCount, state.SkippedNonString, "Non-string keys should be skipped")
+}
+
 func TestCacheExpirationAttack_Prepare_DefaultDB(t *testing.T) {
 	// Given - no database index attribute
 	action := &cacheExpirationAttack{}

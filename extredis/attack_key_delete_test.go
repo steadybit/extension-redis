@@ -264,6 +264,184 @@ func TestNewKeyDeleteAttack(t *testing.T) {
 	require.NotNil(t, action)
 }
 
+func TestKeyDeleteAttack_Start_LargeNumberOfKeys(t *testing.T) {
+	// Given - Redis with many keys that require multiple SCAN iterations (batch size is 100)
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	// Create 1500 keys to force multiple SCAN iterations
+	keyCount := 1500
+	for i := 0; i < keyCount; i++ {
+		mr.Set(fmt.Sprintf("bulk:key:%04d", i), fmt.Sprintf("value-%d", i))
+	}
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "bulk:key:*",
+		MaxKeys:       0, // Unlimited
+		RestoreOnStop: false,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]string),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, state.DeletedKeys, keyCount, "All %d keys should be deleted", keyCount)
+
+	// Verify keys are actually deleted in Redis
+	keys := mr.Keys()
+	for _, k := range keys {
+		assert.False(t, startsWith(k, "bulk:key:"), "Key %s should have been deleted", k)
+	}
+}
+
+func TestKeyDeleteAttack_Start_LargeNumberOfKeys_WithMaxKeys(t *testing.T) {
+	// Given - Redis with many keys but maxKeys limits the deletion
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	keyCount := 1500
+	for i := 0; i < keyCount; i++ {
+		mr.Set(fmt.Sprintf("limited:key:%04d", i), fmt.Sprintf("value-%d", i))
+	}
+
+	action := &keyDeleteAttack{}
+	maxKeys := 250
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "limited:key:*",
+		MaxKeys:       maxKeys,
+		RestoreOnStop: false,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]string),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, state.DeletedKeys, maxKeys, "Only %d keys should be deleted due to maxKeys limit", maxKeys)
+
+	// Verify remaining keys count
+	remainingKeys := mr.Keys()
+	matchingCount := 0
+	for _, k := range remainingKeys {
+		if startsWith(k, "limited:key:") {
+			matchingCount++
+		}
+	}
+	assert.Equal(t, keyCount-maxKeys, matchingCount, "Remaining keys should be %d", keyCount-maxKeys)
+}
+
+func TestKeyDeleteAttack_Start_LargeNumberOfKeys_WithRestoreOnStop(t *testing.T) {
+	// Given - Redis with many keys, all backed up and restored
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	keyCount := 500
+	for i := 0; i < keyCount; i++ {
+		mr.Set(fmt.Sprintf("restore:key:%04d", i), fmt.Sprintf("value-%d", i))
+	}
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "restore:key:*",
+		MaxKeys:       0, // Unlimited
+		RestoreOnStop: true,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]string),
+	}
+
+	// When - Start (deletes all keys)
+	startResult, err := action.Start(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, startResult)
+	assert.Len(t, state.DeletedKeys, keyCount)
+	assert.Len(t, state.BackupData, keyCount)
+
+	// Verify all keys are deleted
+	keys := mr.Keys()
+	for _, k := range keys {
+		assert.False(t, startsWith(k, "restore:key:"), "Key %s should have been deleted", k)
+	}
+
+	// When - Stop (restores all keys)
+	stopResult, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// Then - verify all keys are restored with correct values
+	for i := 0; i < keyCount; i++ {
+		key := fmt.Sprintf("restore:key:%04d", i)
+		val, err := mr.Get(key)
+		require.NoError(t, err, "Key %s should exist after restore", key)
+		assert.Equal(t, fmt.Sprintf("value-%d", i), val, "Key %s should have correct value", key)
+	}
+}
+
+func TestKeyDeleteAttack_Start_LargeNumberOfKeys_MixedPatterns(t *testing.T) {
+	// Given - Redis with many keys, only some matching the pattern
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	targetCount := 1000
+	otherCount := 500
+	for i := 0; i < targetCount; i++ {
+		mr.Set(fmt.Sprintf("target:key:%04d", i), fmt.Sprintf("target-value-%d", i))
+	}
+	for i := 0; i < otherCount; i++ {
+		mr.Set(fmt.Sprintf("other:key:%04d", i), fmt.Sprintf("other-value-%d", i))
+	}
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "target:key:*",
+		MaxKeys:       0,
+		RestoreOnStop: false,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]string),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Len(t, state.DeletedKeys, targetCount, "Only target keys should be deleted")
+
+	// Verify other keys are untouched
+	remainingKeys := mr.Keys()
+	otherRemaining := 0
+	for _, k := range remainingKeys {
+		if startsWith(k, "other:key:") {
+			otherRemaining++
+		}
+	}
+	assert.Equal(t, otherCount, otherRemaining, "Other keys should remain untouched")
+}
+
+func startsWith(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
+}
+
 func TestKeyDeleteAttack_Stop_NoKeysToRestore(t *testing.T) {
 	// Given
 	mr, err := miniredis.Run()
