@@ -8,6 +8,7 @@ import (
 	"context"
 	"os/signal"
 	"syscall"
+	"time"
 
 	_ "github.com/KimMachineGun/automemlimit"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
@@ -25,6 +26,8 @@ import (
 	_ "go.uber.org/automaxprocs"
 )
 
+var startedAt = time.Now().Format(time.RFC3339)
+
 func main() {
 	extlogging.InitZeroLog()
 	extbuild.PrintBuildInformation()
@@ -38,8 +41,6 @@ func main() {
 
 	exthealth.SetReady(false)
 	exthealth.StartProbes(8084)
-
-	exthttp.RegisterHttpHandler("/", exthttp.GetterAsHandler(getExtensionList))
 
 	discovery_kit_sdk.Register(extredis.NewRedisInstanceDiscovery(ctx))
 	discovery_kit_sdk.Register(extredis.NewRedisDatabaseDiscovery(ctx))
@@ -60,6 +61,8 @@ func main() {
 	action_kit_sdk.RegisterAction(extredis.NewReplicationLagCheck())
 	action_kit_sdk.RegisterAction(extredis.NewCacheHitRateCheck())
 	action_kit_sdk.RegisterAction(extredis.NewBlockedClientsCheck())
+
+	exthttp.RegisterHttpHandler("/", exthttp.IfNoneMatchHandler(func() string { return startedAt }, exthttp.GetterAsHandler(getExtensionList)))
 
 	action_kit_sdk.RegisterCoverageEndpoints()
 

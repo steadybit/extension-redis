@@ -1,5 +1,9 @@
 # Changelog
 
+## (next)
+
+- Support if-none-match for the extension list endpoint
+
 ## v1.0.1
 
 - fix: no default value for cache key
