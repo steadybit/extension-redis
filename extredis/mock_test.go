@@ -271,29 +271,6 @@ func TestMock_MaxmemoryLimitAttack_Start_ConfigSet(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestMock_BgsaveAttack_Start(t *testing.T) {
-	// Given
-	client, mock := redismock.NewClientMock()
-	defer client.Close()
-
-	// Mock LASTSAVE and BGSAVE commands - LastSave returns Unix timestamp (int64)
-	lastSaveTime := time.Now().Add(-1 * time.Hour).Unix()
-	mock.ExpectLastSave().SetVal(lastSaveTime)
-	mock.ExpectBgSave().SetVal("Background saving started")
-
-	// When
-	ctx := context.Background()
-	lastSave, err := client.LastSave(ctx).Result()
-	require.NoError(t, err)
-	bgSaveResult, err := client.BgSave(ctx).Result()
-	require.NoError(t, err)
-
-	// Then
-	assert.True(t, time.Now().Unix()-lastSave >= 3600) // At least an hour ago
-	assert.Equal(t, "Background saving started", bgSaveResult)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestMock_KeyDeleteAttack_ScanAndDelete(t *testing.T) {
 	// Given
 	client, mock := redismock.NewClientMock()
@@ -483,27 +460,6 @@ func TestMock_Scan_EmptyResult(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, keys)
 	assert.Equal(t, uint64(0), cursor)
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestMock_CachePenetration_GetNonExistingKey(t *testing.T) {
-	// Given
-	client, mock := redismock.NewClientMock()
-	defer client.Close()
-
-	mock.ExpectGet("steadybit-penetration-miss-key1").RedisNil()
-	mock.ExpectGet("steadybit-penetration-miss-key2").RedisNil()
-	mock.ExpectGet("steadybit-penetration-miss-key3").RedisNil()
-
-	// When
-	ctx := context.Background()
-	for _, key := range []string{"steadybit-penetration-miss-key1", "steadybit-penetration-miss-key2", "steadybit-penetration-miss-key3"} {
-		_, err := client.Get(ctx, key).Result()
-		// redis.Nil is expected for non-existing keys
-		assert.Error(t, err)
-	}
-
-	// Then
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 

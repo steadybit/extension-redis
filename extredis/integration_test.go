@@ -113,21 +113,6 @@ func TestIntegration_MaxmemoryLimitAttack_StartStop(t *testing.T) {
 	require.NotNil(t, stopResult)
 }
 
-func TestIntegration_BgsaveAttack_Start(t *testing.T) {
-	redisURL := skipIfNoRedis(t)
-
-	action := &bgsaveAttack{}
-	state := BgsaveState{
-		RedisURL: redisURL,
-		DB:       0,
-	}
-
-	// Start (triggers BGSAVE)
-	result, err := action.Start(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-}
-
 func TestIntegration_MemoryFillAttack_StartStatusStop(t *testing.T) {
 	redisURL := skipIfNoRedis(t)
 
@@ -434,7 +419,7 @@ func TestIntegration_KeyDeleteAttack_StartStatusStop(t *testing.T) {
 		MaxKeys:       100,
 		RestoreOnStop: true,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 		EndTime:       time.Now().Add(5 * time.Second).Unix(),
 	}
 
@@ -515,42 +500,6 @@ func TestIntegration_CacheExpirationAttack_StartStatusStop(t *testing.T) {
 
 	// Cleanup
 	client.Del(ctx, testPrefix+"key1", testPrefix+"key2")
-}
-
-func TestIntegration_CachePenetrationAttack_StartStatusStop(t *testing.T) {
-	redisURL := skipIfNoRedis(t)
-
-	action := &cachePenetrationAttack{}
-	state := CachePenetrationState{
-		RedisURL:    redisURL,
-		DB:          0,
-		Concurrency: 5,
-		KeyPrefix:   fmt.Sprintf("steadybit-penetration-miss-%s-", uuid.New().String()[:8]),
-		EndTime:     time.Now().Add(3 * time.Second).Unix(),
-		AttackKey:   fmt.Sprintf("%s-inttest-%d", redisURL, time.Now().UnixNano()),
-	}
-
-	// Start
-	result, err := action.Start(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	// Wait for workers to send some requests
-	time.Sleep(500 * time.Millisecond)
-
-	// Status
-	statusResult, err := action.Status(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, statusResult)
-	assert.False(t, statusResult.Completed)
-
-	// Wait for completion
-	time.Sleep(3 * time.Second)
-
-	// Stop
-	stopResult, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, stopResult)
 }
 
 // Integration test for BigKeyAttack

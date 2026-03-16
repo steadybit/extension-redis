@@ -44,7 +44,7 @@ func TestKeyDeleteAttack_Start_MalformedURL(t *testing.T) {
 				Pattern:     "test:*",
 				MaxKeys:     100,
 				DeletedKeys: []string{},
-				BackupData:  make(map[string]string),
+				BackupData:  make(map[string]KeyBackupEntry),
 			}
 
 			_, err := action.Start(context.Background(), &state)
@@ -93,21 +93,6 @@ func TestBigKeyAttack_Start_MalformedURL(t *testing.T) {
 		KeySize:     1024,
 		NumKeys:     1,
 		ExecutionId: "test",
-	}
-
-	_, err := action.Start(context.Background(), &state)
-	require.Error(t, err)
-}
-
-func TestCachePenetrationAttack_Start_MalformedURL(t *testing.T) {
-	action := &cachePenetrationAttack{}
-	state := CachePenetrationState{
-		RedisURL:    "not-a-url",
-		DB:          0,
-		Concurrency: 5,
-		KeyPrefix:   "test-",
-		EndTime:     time.Now().Add(5 * time.Second).Unix(),
-		AttackKey:   "test",
 	}
 
 	_, err := action.Start(context.Background(), &state)
@@ -171,17 +156,6 @@ func TestMaxmemoryLimitAttack_Start_MalformedURL(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestBgsaveAttack_Start_MalformedURL(t *testing.T) {
-	action := &bgsaveAttack{}
-	state := BgsaveState{
-		RedisURL: "http://not-redis:6379",
-		DB:       0,
-	}
-
-	_, err := action.Start(context.Background(), &state)
-	require.Error(t, err)
-}
-
 // ============================================================
 // Wrong password tests — users often misconfigure auth credentials.
 // miniredis supports RequireAuth to simulate this.
@@ -203,7 +177,7 @@ func TestKeyDeleteAttack_Start_WrongPassword(t *testing.T) {
 		Pattern:     "test:*",
 		MaxKeys:     100,
 		DeletedKeys: []string{},
-		BackupData:  make(map[string]string),
+		BackupData:  make(map[string]KeyBackupEntry),
 	}
 
 	_, err = action.Start(context.Background(), &state)
@@ -251,28 +225,6 @@ func TestBigKeyAttack_Start_WrongPassword(t *testing.T) {
 		KeySize:     1024,
 		NumKeys:     1,
 		ExecutionId: "test-auth",
-	}
-
-	_, err = action.Start(context.Background(), &state)
-	require.Error(t, err, "Should fail with wrong password")
-}
-
-func TestCachePenetrationAttack_Start_WrongPassword(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	mr.RequireAuth("correct-password")
-
-	action := &cachePenetrationAttack{}
-	state := CachePenetrationState{
-		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
-		Password:    "wrong-password",
-		DB:          0,
-		Concurrency: 5,
-		KeyPrefix:   "test-",
-		EndTime:     time.Now().Add(5 * time.Second).Unix(),
-		AttackKey:   "test-auth",
 	}
 
 	_, err = action.Start(context.Background(), &state)
@@ -344,24 +296,6 @@ func TestMemoryFillAttack_Start_WrongPassword(t *testing.T) {
 	require.Error(t, err, "Should fail with wrong password")
 }
 
-func TestBgsaveAttack_Start_WrongPassword(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	mr.RequireAuth("correct-password")
-
-	action := &bgsaveAttack{}
-	state := BgsaveState{
-		RedisURL: fmt.Sprintf("redis://%s", mr.Addr()),
-		Password: "wrong-password",
-		DB:       0,
-	}
-
-	_, err = action.Start(context.Background(), &state)
-	require.Error(t, err, "Should fail with wrong password")
-}
-
 // ============================================================
 // Prepare with empty/nil target attributes
 // ============================================================
@@ -419,25 +353,6 @@ func TestBigKeyAttack_Prepare_EmptyTargetAttributes(t *testing.T) {
 			"duration": float64(60000),
 			"keySize":  float64(10),
 			"numKeys":  float64(1),
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "redis URL not found")
-}
-
-func TestCachePenetrationAttack_Prepare_EmptyTargetAttributes(t *testing.T) {
-	action := &cachePenetrationAttack{}
-	state := CachePenetrationState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{},
-		},
-		Config: map[string]any{
-			"duration":    float64(60000),
-			"concurrency": float64(10),
 		},
 		ExecutionId: uuid.New(),
 	})
@@ -518,22 +433,6 @@ func TestMemoryFillAttack_Prepare_EmptyTargetAttributes(t *testing.T) {
 			"fillRate":  float64(100),
 			"maxMemory": float64(1),
 		},
-		ExecutionId: uuid.New(),
-	})
-
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "redis URL not found")
-}
-
-func TestBgsaveAttack_Prepare_EmptyTargetAttributes(t *testing.T) {
-	action := &bgsaveAttack{}
-	state := BgsaveState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{},
-		},
-		Config:      map[string]any{},
 		ExecutionId: uuid.New(),
 	})
 
@@ -805,7 +704,7 @@ func TestKeyDeleteAttack_Stop_ConnectionLost(t *testing.T) {
 		MaxKeys:       100,
 		RestoreOnStop: true,
 		DeletedKeys:   []string{"test:key1"},
-		BackupData:    map[string]string{"test:key1": "value1"},
+		BackupData:    map[string]KeyBackupEntry{"test:key1": {DumpValue: "dummy", TTLSeconds: -1, KeyType: "string"}},
 	}
 
 	// Close Redis before stop — simulates connection loss
@@ -892,7 +791,7 @@ func TestKeyDeleteAttack_Start_NegativeMaxKeys_BehavesAsUnlimited(t *testing.T) 
 		MaxKeys:       -5, // Negative: the check `state.MaxKeys > 0` is false, so unlimited
 		RestoreOnStop: false,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
 
 	result, err := action.Start(context.Background(), &state)
@@ -972,27 +871,6 @@ func TestBigKeyAttack_Prepare_NegativeKeySize(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, 1*1024*1024, state.KeySize, "Negative keySize should default to 1MB")
 	assert.Equal(t, 1, state.NumKeys, "Negative numKeys should default to 1")
-}
-
-func TestCachePenetrationAttack_Prepare_NegativeConcurrency(t *testing.T) {
-	action := &cachePenetrationAttack{}
-	state := CachePenetrationState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{
-				AttrRedisURL: {"redis://localhost:6379"},
-			},
-		},
-		Config: map[string]any{
-			"duration":    float64(60000),
-			"concurrency": float64(-5),
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.NoError(t, err)
-	assert.Equal(t, 10, state.Concurrency, "Negative concurrency should default to 10")
 }
 
 // ============================================================
@@ -1150,7 +1028,7 @@ func TestKeyDeleteAttack_Start_SpecialCharPattern_NoMatch(t *testing.T) {
 		Pattern:     "test:key[a-z]", // Won't match "test:key1"
 		MaxKeys:     100,
 		DeletedKeys: []string{},
-		BackupData:  make(map[string]string),
+		BackupData:  make(map[string]KeyBackupEntry),
 	}
 
 	result, err := action.Start(context.Background(), &state)

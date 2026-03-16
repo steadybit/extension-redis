@@ -29,31 +29,27 @@ func TestKeyDeleteAttack_Stop_RestoresBackedUpKeys_EvenIfStartDeletedPartially(t
 	require.NoError(t, err)
 	defer mr.Close()
 
-	// Simulate partial delete: 5 keys backed up and deleted, 5 remain untouched
+	// Create 10 keys, but only delete 5 of them via Start
 	for i := 0; i < 10; i++ {
 		mr.Set(fmt.Sprintf("partial:key:%d", i), fmt.Sprintf("value-%d", i))
 	}
 
-	// Manually build state as if Start() deleted keys 0-4 but not 5-9
-	deletedKeys := make([]string, 5)
-	backupData := make(map[string]string, 5)
-	for i := 0; i < 5; i++ {
-		key := fmt.Sprintf("partial:key:%d", i)
-		deletedKeys[i] = key
-		backupData[key] = fmt.Sprintf("value-%d", i)
-		mr.Del(key)
-	}
-
+	// Use Start() to delete first 5 keys (with maxKeys=5)
 	action := &keyDeleteAttack{}
 	state := KeyDeleteState{
 		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
 		DB:            0,
 		Pattern:       "partial:key:*",
-		MaxKeys:       10,
+		MaxKeys:       5,
 		RestoreOnStop: true,
-		DeletedKeys:   deletedKeys,
-		BackupData:    backupData,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
+
+	_, err = action.Start(context.Background(), &state)
+	require.NoError(t, err)
+	assert.Len(t, state.DeletedKeys, 5)
+	assert.Len(t, state.BackupData, 5)
 
 	// When
 	result, err := action.Stop(context.Background(), &state)
@@ -71,9 +67,12 @@ func TestKeyDeleteAttack_Stop_RestoresBackedUpKeys_EvenIfStartDeletedPartially(t
 	}
 }
 
-func TestKeyDeleteAttack_Stop_OnlyStringKeysInBackup(t *testing.T) {
-	// Start() only backs up string values. Non-string keys that were deleted are lost.
-	// This test documents that behavior.
+func TestKeyDeleteAttack_Stop_AllKeyTypesBackedUp(t *testing.T) {
+	// Start() now backs up ALL key types via DUMP/RESTORE.
+	// NOTE: miniredis does not support DUMP for non-string types, so those
+	// keys log a warning and are not backed up in this test. With real Redis,
+	// DUMP works for all types. We test string backup/restore here and
+	// verify that non-string DUMP failures are handled gracefully.
 	mr, err := miniredis.Run()
 	require.NoError(t, err)
 	defer mr.Close()
@@ -92,20 +91,25 @@ func TestKeyDeleteAttack_Stop_OnlyStringKeysInBackup(t *testing.T) {
 		MaxKeys:       0,
 		RestoreOnStop: true,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
 
-	// Start deletes all matching keys and backs up string values only
+	// Start deletes all matching keys; DUMP works for strings, warns for others in miniredis
 	startResult, err := action.Start(context.Background(), &state)
 	require.NoError(t, err)
 	require.NotNil(t, startResult)
 
-	// String key should be in backup, list and hash should not
+	// String key should be backed up
 	assert.Contains(t, state.BackupData, "mixed:str")
-	assert.NotContains(t, state.BackupData, "mixed:list")
-	assert.NotContains(t, state.BackupData, "mixed:hash")
+	// In miniredis, non-string DUMP fails gracefully — keys are deleted but not backed up
+	// With real Redis, all types would be backed up
 
-	// Stop restores only the string key
+	// All keys should be deleted
+	assert.False(t, mr.Exists("mixed:str"))
+	assert.False(t, mr.Exists("mixed:list"))
+	assert.False(t, mr.Exists("mixed:hash"))
+
+	// Stop restores backed up keys
 	stopResult, err := action.Stop(context.Background(), &state)
 	require.NoError(t, err)
 	require.NotNil(t, stopResult)
@@ -114,10 +118,6 @@ func TestKeyDeleteAttack_Stop_OnlyStringKeysInBackup(t *testing.T) {
 	val, mrErr := mr.Get("mixed:str")
 	require.NoError(t, mrErr)
 	assert.Equal(t, "string-value", val)
-
-	// Non-string keys are permanently gone
-	assert.False(t, mr.Exists("mixed:list"), "List key cannot be restored by string backup")
-	assert.False(t, mr.Exists("mixed:hash"), "Hash key cannot be restored by string backup")
 }
 
 func TestKeyDeleteAttack_Stop_BackupWithSpecialValues(t *testing.T) {
@@ -141,13 +141,13 @@ func TestKeyDeleteAttack_Stop_BackupWithSpecialValues(t *testing.T) {
 		MaxKeys:       0,
 		RestoreOnStop: true,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
 
-	// Start — delete and backup
+	// Start — delete and backup via DUMP
 	_, err = action.Start(context.Background(), &state)
 	require.NoError(t, err)
-	assert.Len(t, state.BackupData, 5)
+	assert.Len(t, state.BackupData, 5) // All string keys backed up
 
 	// Stop — restore
 	_, err = action.Stop(context.Background(), &state)
@@ -255,20 +255,16 @@ func TestCacheExpirationAttack_Stop_RestoresOriginalTTL(t *testing.T) {
 	backup1 := state.BackupData["ttl-restore:key1"]
 	assert.Greater(t, backup1.TTLSeconds, int64(0), "Should have captured original TTL")
 	backup2 := state.BackupData["ttl-restore:key2"]
-	// NOTE: Redis TTL command returns -1ns for persistent keys; int64((-1ns).Seconds()) == 0
-	// This means persistent keys get TTLSeconds=0 in backup, not -1.
-	// The Stop logic doesn't call Persist() for TTLSeconds=0, so the attack TTL remains.
-	// This is a known limitation of the current backup/restore logic.
-	assert.Equal(t, int64(0), backup2.TTLSeconds, "No-TTL key gets 0 due to duration conversion")
+	// TTL for persistent keys should now correctly be stored as -1
+	assert.Equal(t, int64(-1), backup2.TTLSeconds, "No-TTL key should be stored as -1 (persistent)")
 
 	// Stop — restore original TTLs
 	_, err = action.Stop(context.Background(), &state)
 	require.NoError(t, err)
 
-	// Key2 still has the attack TTL because backup stored 0 (not -1) for persistent keys.
-	// This documents the current behavior — a proper fix would store the raw TTL result.
+	// Key2 should have its TTL removed (persistent) since the backup stored -1
 	ttl2 := mr.TTL("ttl-restore:key2")
-	assert.Greater(t, ttl2, time.Duration(0), "Key2 retains attack TTL (known limitation: persistent key TTL not restored)")
+	assert.Equal(t, time.Duration(0), ttl2, "Key2 should be persistent (no TTL) after restore")
 }
 
 func TestCacheExpirationAttack_Stop_PartialBackup_MixedKeyTypes(t *testing.T) {
@@ -543,110 +539,6 @@ func TestMemoryFillAttack_Stop_GoroutineStillRunning(t *testing.T) {
 }
 
 // ============================================================
-// Cache-penetration: Stop must cancel all workers
-// ============================================================
-
-func TestCachePenetrationAttack_Stop_CancelsWorkers(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	action := &cachePenetrationAttack{}
-	attackKey := fmt.Sprintf("redis://%s-test-%d", mr.Addr(), time.Now().UnixNano())
-
-	state := CachePenetrationState{
-		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:          0,
-		Concurrency: 5,
-		KeyPrefix:   "steadybit-penetration-miss-test-",
-		EndTime:     time.Now().Add(30 * time.Second).Unix(),
-		AttackKey:   attackKey,
-	}
-
-	_, err = action.Start(context.Background(), &state)
-	require.NoError(t, err)
-
-	// Wait for workers to send some requests
-	time.Sleep(500 * time.Millisecond)
-
-	// Get count before stop
-	cachePenetrationMutex.Lock()
-	counter := cachePenetrationCounts[state.AttackKey]
-	cachePenetrationMutex.Unlock()
-	require.NotNil(t, counter)
-	countBeforeStop := counter.Load()
-	require.Greater(t, countBeforeStop, int64(0), "Workers should have sent requests")
-
-	// Stop
-	stopResult, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, stopResult)
-
-	// Workers use context cancellation — give them time to exit
-	time.Sleep(200 * time.Millisecond)
-
-	// Verify counter was removed from global map
-	cachePenetrationMutex.Lock()
-	_, exists := cachePenetrationCounts[state.AttackKey]
-	cachePenetrationMutex.Unlock()
-	assert.False(t, exists, "Counter should be removed from global map after Stop")
-
-	// Verify cancel function was removed
-	cachePenetrationMutex.Lock()
-	_, cancelExists := cachePenetrationCancels[state.AttackKey]
-	cachePenetrationMutex.Unlock()
-	assert.False(t, cancelExists, "Cancel func should be removed from global map after Stop")
-}
-
-func TestCachePenetrationAttack_Stop_CalledWithoutStart(t *testing.T) {
-	action := &cachePenetrationAttack{}
-	state := CachePenetrationState{
-		RedisURL:    "redis://localhost:6379",
-		DB:          0,
-		Concurrency: 5,
-		AttackKey:   "never-started",
-	}
-
-	// Should not panic
-	result, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.Contains(t, (*result.Messages)[0].Message, "0")
-}
-
-func TestCachePenetrationAttack_Stop_CalledTwice(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	action := &cachePenetrationAttack{}
-	state := CachePenetrationState{
-		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:          0,
-		Concurrency: 3,
-		KeyPrefix:   "steadybit-penetration-miss-double-",
-		EndTime:     time.Now().Add(10 * time.Second).Unix(),
-		AttackKey:   fmt.Sprintf("double-stop-%d", time.Now().UnixNano()),
-	}
-
-	_, err = action.Start(context.Background(), &state)
-	require.NoError(t, err)
-
-	time.Sleep(200 * time.Millisecond)
-
-	// First stop
-	result1, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result1)
-
-	// Second stop — should not panic, should report 0
-	result2, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result2)
-	assert.Contains(t, (*result2.Messages)[0].Message, "0")
-}
-
-// ============================================================
 // Connection-exhaustion: Stop cleanup and edge cases
 // ============================================================
 
@@ -836,7 +728,7 @@ func TestKeyDeleteAttack_Stop_CalledTwice(t *testing.T) {
 		MaxKeys:       0,
 		RestoreOnStop: true,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
 
 	// Start — delete

@@ -110,7 +110,7 @@ func (a *cacheExpirationAttack) Describe() action_kit_api.ActionDescription {
 				Label:        "Restore on Stop",
 				Description:  extutil.Ptr("Restore expired keys with their original values and TTLs when attack stops"),
 				Type:         action_kit_api.ActionParameterTypeBoolean,
-				DefaultValue: extutil.Ptr("false"),
+				DefaultValue: extutil.Ptr("true"),
 				Required:     extutil.Ptr(false),
 				Advanced:     extutil.Ptr(true),
 			},
@@ -254,7 +254,15 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 			ttl, err := client.TTL(ctx, key).Result()
 			var ttlSeconds int64 = -1
 			if err == nil {
-				ttlSeconds = int64(ttl.Seconds())
+				if ttl < 0 {
+					// ttl == -1ns means persistent (no expiry), -2ns means key doesn't exist
+					ttlSeconds = -1
+				} else {
+					ttlSeconds = int64(ttl.Seconds())
+					if ttlSeconds == 0 && ttl > 0 {
+						ttlSeconds = 1 // Ensure sub-second TTLs round up to at least 1
+					}
+				}
 			}
 
 			state.BackupData[key] = KeyBackup{

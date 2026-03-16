@@ -6,8 +6,10 @@ package extredis
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"strconv"
+	"time"
 
 	"github.com/rs/zerolog/log"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
@@ -19,15 +21,21 @@ import (
 
 type keyDeleteAttack struct{}
 
+type KeyBackupEntry struct {
+	DumpValue  string `json:"dumpValue"`  // Serialized key data from DUMP command
+	TTLSeconds int64  `json:"ttlSeconds"` // Original TTL in seconds (-1 = no TTL)
+	KeyType    string `json:"keyType"`    // Key type (string, list, hash, set, zset, stream)
+}
+
 type KeyDeleteState struct {
-	RedisURL      string            `json:"redisUrl"`
-	Password      string            `json:"password"`
-	DB            int               `json:"db"`
-	Pattern       string            `json:"pattern"`
-	MaxKeys       int               `json:"maxKeys"`
-	DeletedKeys   []string          `json:"deletedKeys"`
-	BackupData    map[string]string `json:"backupData"` // For restore on stop
-	RestoreOnStop bool              `json:"restoreOnStop"`
+	RedisURL      string                    `json:"redisUrl"`
+	Password      string                    `json:"password"`
+	DB            int                       `json:"db"`
+	Pattern       string                    `json:"pattern"`
+	MaxKeys       int                       `json:"maxKeys"`
+	DeletedKeys   []string                  `json:"deletedKeys"`
+	BackupData    map[string]KeyBackupEntry `json:"backupData"`
+	RestoreOnStop bool                      `json:"restoreOnStop"`
 }
 
 var _ action_kit_sdk.Action[KeyDeleteState] = (*keyDeleteAttack)(nil)
@@ -39,7 +47,7 @@ func NewKeyDeleteAttack() action_kit_sdk.Action[KeyDeleteState] {
 
 func (a *keyDeleteAttack) NewEmptyState() KeyDeleteState {
 	return KeyDeleteState{
-		BackupData: make(map[string]string),
+		BackupData: make(map[string]KeyBackupEntry),
 	}
 }
 
@@ -47,7 +55,7 @@ func (a *keyDeleteAttack) Describe() action_kit_api.ActionDescription {
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.database.key-delete",
 		Label:       "Delete Keys",
-		Description: "Deletes keys matching a pattern to simulate data loss scenarios",
+		Description: "Deletes keys matching a pattern to simulate data loss scenarios. Supports backup and restore of all key types (string, list, hash, set, zset, stream) using Redis DUMP/RESTORE.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        extutil.Ptr(redisIcon),
 		TargetSelection: extutil.Ptr(action_kit_api.TargetSelection{
@@ -92,7 +100,7 @@ func (a *keyDeleteAttack) Describe() action_kit_api.ActionDescription {
 			{
 				Name:         "restoreOnStop",
 				Label:        "Restore on Stop",
-				Description:  extutil.Ptr("Restore deleted keys when attack stops (only works for string values)"),
+				Description:  extutil.Ptr("Restore deleted keys when attack stops. Uses DUMP/RESTORE to preserve all key types and TTLs."),
 				Type:         action_kit_api.ActionParameterTypeBoolean,
 				DefaultValue: extutil.Ptr("true"),
 				Required:     extutil.Ptr(false),
@@ -128,7 +136,7 @@ func (a *keyDeleteAttack) Prepare(ctx context.Context, state *KeyDeleteState, re
 	state.MaxKeys = maxKeys
 	state.RestoreOnStop = restoreOnStop
 	state.DeletedKeys = []string{}
-	state.BackupData = make(map[string]string)
+	state.BackupData = make(map[string]KeyBackupEntry)
 
 	return nil, nil
 }
@@ -180,13 +188,36 @@ func (a *keyDeleteAttack) Start(ctx context.Context, state *KeyDeleteState) (*ac
 		}, nil
 	}
 
-	// Backup keys if restore is enabled
+	// Backup keys using DUMP if restore is enabled
+	backupFailures := 0
 	if state.RestoreOnStop {
 		for _, key := range keysToDelete {
-			// Only backup string values (other types would need more complex handling)
-			val, err := client.Get(ctx, key).Result()
-			if err == nil {
-				state.BackupData[key] = val
+			// Get key type for logging
+			keyType, typeErr := client.Type(ctx, key).Result()
+			if typeErr != nil {
+				keyType = "unknown"
+			}
+
+			// DUMP serializes the key value in Redis-internal format (RDB-like)
+			// Works for ALL key types: string, list, hash, set, zset, stream
+			dumpVal, dumpErr := client.Dump(ctx, key).Result()
+			if dumpErr != nil {
+				log.Warn().Err(dumpErr).Str("key", key).Str("type", keyType).Msg("Failed to DUMP key for backup")
+				backupFailures++
+				continue
+			}
+
+			// Get original TTL
+			ttl, ttlErr := client.TTL(ctx, key).Result()
+			var ttlSeconds int64 = -1 // Default: no expiry
+			if ttlErr == nil && ttl > 0 {
+				ttlSeconds = int64(ttl.Seconds())
+			}
+
+			state.BackupData[key] = KeyBackupEntry{
+				DumpValue:  base64.StdEncoding.EncodeToString([]byte(dumpVal)),
+				TTLSeconds: ttlSeconds,
+				KeyType:    keyType,
 			}
 		}
 	}
@@ -203,11 +234,19 @@ func (a *keyDeleteAttack) Start(ctx context.Context, state *KeyDeleteState) (*ac
 		deletedCount++
 	}
 
+	msg := fmt.Sprintf("Deleted %d keys matching pattern '%s'", deletedCount, state.Pattern)
+	if state.RestoreOnStop {
+		msg += fmt.Sprintf(". Backed up %d keys for restore.", len(state.BackupData))
+		if backupFailures > 0 {
+			msg += fmt.Sprintf(" WARNING: %d keys could not be backed up and will be permanently lost.", backupFailures)
+		}
+	}
+
 	return &action_kit_api.StartResult{
 		Messages: extutil.Ptr([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Deleted %d keys matching pattern '%s'", deletedCount, state.Pattern),
+				Message: msg,
 			},
 		}),
 	}, nil
@@ -230,22 +269,45 @@ func (a *keyDeleteAttack) Stop(ctx context.Context, state *KeyDeleteState) (*act
 		return nil, fmt.Errorf("failed to create Redis client for restore: %w", err)
 	}
 
-	// Restore backed up keys
+	// Restore backed up keys using RESTORE
 	restoredCount := 0
-	for key, value := range state.BackupData {
-		err := client.Set(ctx, key, value, 0).Err()
+	failedCount := 0
+	for key, backup := range state.BackupData {
+		// Calculate TTL for RESTORE command
+		var ttlDuration time.Duration
+		if backup.TTLSeconds > 0 {
+			ttlDuration = time.Duration(backup.TTLSeconds) * time.Second
+		}
+		// TTLSeconds == -1 or 0 means no expiry, ttlDuration stays 0
+
+		// Decode base64 DUMP value
+		dumpBytes, decErr := base64.StdEncoding.DecodeString(backup.DumpValue)
+		if decErr != nil {
+			log.Warn().Err(decErr).Str("key", key).Msg("Failed to decode backup data")
+			failedCount++
+			continue
+		}
+
+		// RestoreReplace overwrites the key if it already exists (idempotent)
+		err := client.RestoreReplace(ctx, key, ttlDuration, string(dumpBytes)).Err()
 		if err != nil {
-			log.Warn().Err(err).Str("key", key).Msg("Failed to restore key")
+			log.Warn().Err(err).Str("key", key).Str("type", backup.KeyType).Msg("Failed to restore key")
+			failedCount++
 			continue
 		}
 		restoredCount++
 	}
 
+	level := extutil.Ptr(action_kit_api.Info)
+	if failedCount > 0 {
+		level = extutil.Ptr(action_kit_api.Warn)
+	}
+
 	return &action_kit_api.StopResult{
 		Messages: extutil.Ptr([]action_kit_api.Message{
 			{
-				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Restored %d of %d deleted keys", restoredCount, len(state.BackupData)),
+				Level:   level,
+				Message: fmt.Sprintf("Restored %d of %d deleted keys (all types via DUMP/RESTORE). %d failures.", restoredCount, len(state.BackupData), failedCount),
 			},
 		}),
 	}, nil

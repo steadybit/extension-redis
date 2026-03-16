@@ -187,7 +187,7 @@ func TestKeyDeleteAttack_StartStatusStop(t *testing.T) {
 		MaxKeys:       100,
 		RestoreOnStop: true,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
 
 	// When - Start
@@ -225,7 +225,7 @@ func TestKeyDeleteAttack_Start_NoMatchingKeys(t *testing.T) {
 		MaxKeys:       100,
 		RestoreOnStop: false,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
 
 	// When
@@ -246,7 +246,7 @@ func TestKeyDeleteAttack_Start_ConnectionError(t *testing.T) {
 		Pattern:     "test:*",
 		MaxKeys:     100,
 		DeletedKeys: []string{},
-		BackupData:  make(map[string]string),
+		BackupData:  make(map[string]KeyBackupEntry),
 	}
 
 	// When
@@ -284,7 +284,7 @@ func TestKeyDeleteAttack_Start_LargeNumberOfKeys(t *testing.T) {
 		MaxKeys:       0, // Unlimited
 		RestoreOnStop: false,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
 
 	// When
@@ -322,7 +322,7 @@ func TestKeyDeleteAttack_Start_LargeNumberOfKeys_WithMaxKeys(t *testing.T) {
 		MaxKeys:       maxKeys,
 		RestoreOnStop: false,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
 
 	// When
@@ -363,7 +363,7 @@ func TestKeyDeleteAttack_Start_LargeNumberOfKeys_WithRestoreOnStop(t *testing.T)
 		MaxKeys:       0, // Unlimited
 		RestoreOnStop: true,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
 
 	// When - Start (deletes all keys)
@@ -416,7 +416,7 @@ func TestKeyDeleteAttack_Start_LargeNumberOfKeys_MixedPatterns(t *testing.T) {
 		MaxKeys:       0,
 		RestoreOnStop: false,
 		DeletedKeys:   []string{},
-		BackupData:    make(map[string]string),
+		BackupData:    make(map[string]KeyBackupEntry),
 	}
 
 	// When
@@ -455,7 +455,7 @@ func TestKeyDeleteAttack_Stop_NoKeysToRestore(t *testing.T) {
 		Pattern:       "test:*",
 		RestoreOnStop: true,
 		DeletedKeys:   []string{}, // No keys to restore
-		BackupData:    map[string]string{},
+		BackupData:    map[string]KeyBackupEntry{},
 	}
 
 	// When
@@ -464,4 +464,52 @@ func TestKeyDeleteAttack_Stop_NoKeysToRestore(t *testing.T) {
 	// Then
 	require.NoError(t, err)
 	require.NotNil(t, result)
+}
+
+func TestKeyDeleteAttack_Start_MixedTypes_DumpBackup(t *testing.T) {
+	// Given - Redis with mixed key types. DUMP backup works for all types with
+	// real Redis, but miniredis only supports DUMP for string keys.
+	// This test verifies graceful handling: strings are backed up and restored,
+	// non-string types are deleted with a logged warning about backup failure.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	mr.Set("mixed:str", "string-value")
+	mr.Lpush("mixed:list", "item1")
+	mr.Lpush("mixed:list", "item2")
+	mr.HSet("mixed:hash", "field1", "hashval")
+
+	action := &keyDeleteAttack{}
+	state := KeyDeleteState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:            0,
+		Pattern:       "mixed:*",
+		MaxKeys:       0,
+		RestoreOnStop: true,
+		DeletedKeys:   []string{},
+		BackupData:    make(map[string]KeyBackupEntry),
+	}
+
+	// Start — delete all, backup what DUMP supports
+	startResult, err := action.Start(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, startResult)
+
+	// String key backed up via DUMP
+	assert.Contains(t, state.BackupData, "mixed:str")
+	assert.Equal(t, "string", state.BackupData["mixed:str"].KeyType)
+
+	// All 3 keys should be deleted
+	assert.Len(t, state.DeletedKeys, 3)
+
+	// Stop — restore backed up keys
+	stopResult, err := action.Stop(context.Background(), &state)
+	require.NoError(t, err)
+	require.NotNil(t, stopResult)
+
+	// String key restored correctly
+	val, mrErr := mr.Get("mixed:str")
+	require.NoError(t, mrErr)
+	assert.Equal(t, "string-value", val)
 }

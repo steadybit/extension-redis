@@ -201,13 +201,33 @@ func (a *maxmemoryLimitAttack) Start(ctx context.Context, state *MaxmemoryLimitS
 		policyMsg = state.OriginalPolicy + " (unchanged)"
 	}
 
+	messages := []action_kit_api.Message{
+		{
+			Level:   extutil.Ptr(action_kit_api.Info),
+			Message: fmt.Sprintf("Set maxmemory to %s (was: %s), policy: %s", state.NewMaxmemory, state.OriginalMaxmemory, policyMsg),
+		},
+	}
+
+	// Warn about eviction policies that permanently delete data
+	activePolicy := state.NewPolicy
+	if activePolicy == "keep" || activePolicy == "" {
+		activePolicy = state.OriginalPolicy
+	}
+	switch activePolicy {
+	case "allkeys-lru", "allkeys-lfu", "allkeys-random":
+		messages = append(messages, action_kit_api.Message{
+			Level:   extutil.Ptr(action_kit_api.Warn),
+			Message: fmt.Sprintf("WARNING: Eviction policy '%s' will PERMANENTLY DELETE keys when memory limit is reached. Evicted data cannot be recovered. Consider using 'noeviction' to return OOM errors instead.", activePolicy),
+		})
+	case "volatile-lru", "volatile-lfu", "volatile-random", "volatile-ttl":
+		messages = append(messages, action_kit_api.Message{
+			Level:   extutil.Ptr(action_kit_api.Warn),
+			Message: fmt.Sprintf("WARNING: Eviction policy '%s' will permanently delete keys with TTL when memory limit is reached.", activePolicy),
+		})
+	}
+
 	return &action_kit_api.StartResult{
-		Messages: extutil.Ptr([]action_kit_api.Message{
-			{
-				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Set maxmemory to %s (was: %s), policy: %s", state.NewMaxmemory, state.OriginalMaxmemory, policyMsg),
-			},
-		}),
+		Messages: extutil.Ptr(messages),
 	}, nil
 }
 
