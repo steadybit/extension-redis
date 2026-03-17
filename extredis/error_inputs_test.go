@@ -375,70 +375,6 @@ func TestConnectionCountCheck_Start_WrongPassword(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestBlockedClientsCheck_Start_MalformedURL(t *testing.T) {
-	action := &blockedClientsCheck{}
-	state := BlockedClientsCheckState{
-		RedisURL:          "http://wrong:6379",
-		MaxBlockedClients: 100,
-		EndTime:           time.Now().Add(5 * time.Second).Unix(),
-	}
-
-	_, err := action.Start(context.Background(), &state)
-	require.Error(t, err)
-}
-
-func TestBlockedClientsCheck_Start_WrongPassword(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	mr.RequireAuth("correct-password")
-
-	action := &blockedClientsCheck{}
-	state := BlockedClientsCheckState{
-		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
-		Password:          "wrong-password",
-		MaxBlockedClients: 100,
-		EndTime:           time.Now().Add(5 * time.Second).Unix(),
-	}
-
-	_, err = action.Start(context.Background(), &state)
-	require.Error(t, err)
-}
-
-func TestCacheHitRateCheck_Start_MalformedURL(t *testing.T) {
-	action := &cacheHitRateCheck{}
-	state := CacheHitRateCheckState{
-		RedisURL:   "not-a-url",
-		MinHitRate: 80,
-		FirstCheck: true,
-		EndTime:    time.Now().Add(5 * time.Second).Unix(),
-	}
-
-	_, err := action.Start(context.Background(), &state)
-	require.Error(t, err)
-}
-
-func TestCacheHitRateCheck_Start_WrongPassword(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	mr.RequireAuth("correct-password")
-
-	action := &cacheHitRateCheck{}
-	state := CacheHitRateCheckState{
-		RedisURL:   fmt.Sprintf("redis://%s", mr.Addr()),
-		Password:   "wrong-password",
-		MinHitRate: 80,
-		FirstCheck: true,
-		EndTime:    time.Now().Add(5 * time.Second).Unix(),
-	}
-
-	_, err = action.Start(context.Background(), &state)
-	require.Error(t, err)
-}
-
 func TestReplicationLagCheck_Start_MalformedURL(t *testing.T) {
 	action := &replicationLagCheck{}
 	state := ReplicationLagCheckState{
@@ -646,45 +582,6 @@ func TestConnectionCountCheck_Prepare_EmptyTargetAttributes(t *testing.T) {
 			"duration":          float64(30000),
 			"maxConnectionsPct": float64(90),
 			"maxConnections":    float64(10000),
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "redis URL not found")
-}
-
-func TestBlockedClientsCheck_Prepare_EmptyTargetAttributes(t *testing.T) {
-	action := &blockedClientsCheck{}
-	state := BlockedClientsCheckState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{},
-		},
-		Config: map[string]any{
-			"duration":          float64(30000),
-			"maxBlockedClients": float64(100),
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "redis URL not found")
-}
-
-func TestCacheHitRateCheck_Prepare_EmptyTargetAttributes(t *testing.T) {
-	action := &cacheHitRateCheck{}
-	state := CacheHitRateCheckState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{},
-		},
-		Config: map[string]any{
-			"duration":        float64(30000),
-			"minHitRate":      float64(80),
-			"minObservedRate": float64(100),
 		},
 		ExecutionId: uuid.New(),
 	})

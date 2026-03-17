@@ -149,22 +149,6 @@ Discovers Redis databases (db0-db15) and exposes:
   - `maxLagSeconds` - Maximum allowed replication lag (default: 10s)
   - `requireLinkUp` - Fail if master link is down (default: true)
 
-#### Cache Hit Rate Check
-- **ID**: `com.steadybit.extension_redis.instance.check-hitrate`
-- **Target**: Instance
-- **Description**: Monitors cache hit rate and fails if below threshold
-- **Parameters**:
-  - `duration` - Monitoring duration
-  - `minHitRate` - Minimum acceptable hit rate % (default: 80%)
-
-#### Blocked Clients Check
-- **ID**: `com.steadybit.extension_redis.instance.check-blocked-clients`
-- **Target**: Instance
-- **Description**: Monitors blocked clients (waiting on BLPOP/BRPOP/etc.)
-- **Parameters**:
-  - `duration` - Monitoring duration
-  - `maxBlockedClients` - Maximum allowed blocked clients (default: 10)
-
 ## Demo Environment & Chaos Experiments
 
 A complete demo environment with a sample application and chaos engineering experiments is available in the `demo/` directory.

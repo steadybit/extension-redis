@@ -213,69 +213,6 @@ func TestIntegration_ConnectionCountCheck_StartStatus(t *testing.T) {
 	require.NotNil(t, statusResult.Metrics)
 }
 
-func TestIntegration_BlockedClientsCheck_StartStatus(t *testing.T) {
-	redisURL := skipIfNoRedis(t)
-
-	action := &blockedClientsCheck{}
-	state := BlockedClientsCheckState{
-		RedisURL:          redisURL,
-		MaxBlockedClients: 100,
-		EndTime:           time.Now().Add(3 * time.Second).Unix(),
-	}
-
-	// Start
-	result, err := action.Start(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	// Status
-	statusResult, err := action.Status(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, statusResult)
-	require.NotNil(t, statusResult.Metrics)
-}
-
-func TestIntegration_CacheHitRateCheck_StartStatus(t *testing.T) {
-	redisURL := skipIfNoRedis(t)
-
-	// First, generate some cache hits/misses
-	client, err := clients.CreateRedisClientFromURL(redisURL, "", 0)
-	require.NoError(t, err)
-	defer client.Close()
-
-	ctx := context.Background()
-	// Generate hits
-	client.Set(ctx, "test:hitrate:key", "value", time.Minute)
-	for i := 0; i < 5; i++ {
-		client.Get(ctx, "test:hitrate:key")
-	}
-	// Generate misses
-	for i := 0; i < 2; i++ {
-		client.Get(ctx, "test:hitrate:nonexistent")
-	}
-	// Cleanup
-	defer client.Del(ctx, "test:hitrate:key")
-
-	action := &cacheHitRateCheck{}
-	state := CacheHitRateCheckState{
-		RedisURL:        redisURL,
-		MinHitRate:      10, // Low threshold
-		MinObservedRate: 100,
-		FirstCheck:      true,
-		EndTime:         time.Now().Add(3 * time.Second).Unix(),
-	}
-
-	// Start
-	result, err := action.Start(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	// Status
-	statusResult, err := action.Status(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, statusResult)
-}
-
 func TestIntegration_ReplicationLagCheck_StartStatus(t *testing.T) {
 	redisURL := skipIfNoRedis(t)
 

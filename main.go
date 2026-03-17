@@ -54,8 +54,6 @@ func main() {
 	action_kit_sdk.RegisterAction(extredis.NewLatencyCheck())
 	action_kit_sdk.RegisterAction(extredis.NewConnectionCountCheck())
 	action_kit_sdk.RegisterAction(extredis.NewReplicationLagCheck())
-	action_kit_sdk.RegisterAction(extredis.NewCacheHitRateCheck())
-	action_kit_sdk.RegisterAction(extredis.NewBlockedClientsCheck())
 
 	exthttp.RegisterHttpHandler("/", exthttp.IfNoneMatchHandler(func() string { return startedAt }, exthttp.GetterAsHandler(getExtensionList)))
 

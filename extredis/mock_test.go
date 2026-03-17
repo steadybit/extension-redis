@@ -82,51 +82,6 @@ maxclients:10000`
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestMock_HitRateCheck_Status_WithStats(t *testing.T) {
-	// Given
-	client, mock := redismock.NewClientMock()
-	defer client.Close()
-
-	// Mock stats info
-	statsInfo := `# Stats
-keyspace_hits:1000000
-keyspace_misses:100000`
-
-	mock.ExpectInfo("stats").SetVal(statsInfo)
-
-	// When
-	ctx := context.Background()
-	result, err := client.Info(ctx, "stats").Result()
-
-	// Then
-	require.NoError(t, err)
-	assert.Contains(t, result, "keyspace_hits:1000000")
-	assert.Contains(t, result, "keyspace_misses:100000")
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
-func TestMock_BlockedClientsCheck_Status_ThresholdExceeded(t *testing.T) {
-	// Given
-	client, mock := redismock.NewClientMock()
-	defer client.Close()
-
-	// Mock clients info with blocked clients
-	clientsInfo := `# Clients
-connected_clients:100
-blocked_clients:15`
-
-	mock.ExpectInfo("clients").SetVal(clientsInfo)
-
-	// When
-	ctx := context.Background()
-	result, err := client.Info(ctx, "clients").Result()
-
-	// Then
-	require.NoError(t, err)
-	assert.Contains(t, result, "blocked_clients:15")
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestMock_ReplicationCheck_Status_AsReplica(t *testing.T) {
 	// Given
 	client, mock := redismock.NewClientMock()
