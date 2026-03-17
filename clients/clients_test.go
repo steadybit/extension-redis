@@ -434,3 +434,84 @@ func TestGetRedisInfo_WithMock_Error(t *testing.T) {
 	assert.Nil(t, info)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
+
+func TestGetRedisClient_CreatesAndReusesClient(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	url := fmt.Sprintf("redis://%s", mr.Addr())
+
+	// When - first call creates the client
+	client1, err := GetRedisClient(url, "", 0)
+	require.NoError(t, err)
+	require.NotNil(t, client1)
+
+	// Then - second call returns the same pooled client
+	client2, err := GetRedisClient(url, "", 0)
+	require.NoError(t, err)
+	assert.Same(t, client1, client2)
+}
+
+func TestGetRedisClient_DifferentKeysCreateDifferentClients(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	url := fmt.Sprintf("redis://%s", mr.Addr())
+
+	// When
+	client1, err := GetRedisClient(url, "", 0)
+	require.NoError(t, err)
+
+	client2, err := GetRedisClient(url, "", 1)
+	require.NoError(t, err)
+
+	// Then - different DB number means different client
+	assert.NotSame(t, client1, client2)
+}
+
+func TestGetRedisClient_InvalidURL(t *testing.T) {
+	// When
+	_, err := GetRedisClient("invalid://not-valid", "", 0)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestCloseAllClients(t *testing.T) {
+	// Given - create a pooled client
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	url := fmt.Sprintf("redis://%s", mr.Addr())
+	_, err = GetRedisClient(url, "close-test", 0)
+	require.NoError(t, err)
+
+	// When
+	CloseAllClients()
+
+	// Then - pool should be empty, next call creates a new client
+	client, err := GetRedisClient(url, "close-test", 0)
+	require.NoError(t, err)
+	require.NotNil(t, client)
+}
+
+func TestParseRedisURL_TLS_SecureSkipVerifyFalse(t *testing.T) {
+	// Given
+	endpoint := &config.RedisEndpoint{
+		URL:                "rediss://secure.redis.local:6379",
+		InsecureSkipVerify: false,
+	}
+
+	// When
+	opts, err := parseRedisURL(endpoint)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, opts.TLSConfig)
+	assert.False(t, opts.TLSConfig.InsecureSkipVerify)
+}

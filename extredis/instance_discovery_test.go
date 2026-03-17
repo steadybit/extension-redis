@@ -206,3 +206,30 @@ func TestInstanceDiscovery_DiscoverTargets(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, targets, 1)
 }
+
+func TestInstanceDiscovery_DiscoverTargets_ViaEndpoints(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	origEndpoints := config.Config.Endpoints
+	defer func() { config.Config.Endpoints = origEndpoints }()
+
+	config.Config.Endpoints = []config.RedisEndpoint{
+		{
+			URL:  fmt.Sprintf("redis://%s", mr.Addr()),
+			Name: "via-endpoints",
+		},
+	}
+
+	discovery := &redisInstanceDiscovery{}
+
+	// When
+	targets, err := discovery.DiscoverTargets(context.Background())
+
+	// Then
+	require.NoError(t, err)
+	require.Len(t, targets, 1)
+	assert.Equal(t, "via-endpoints", targets[0].Label)
+}

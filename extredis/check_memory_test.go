@@ -343,6 +343,59 @@ func TestNewMemoryCheck(t *testing.T) {
 	require.NotNil(t, action)
 }
 
+func TestMemoryCheck_Status_WithMetrics(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	for i := 0; i < 10; i++ {
+		mr.Set(fmt.Sprintf("key:%d", i), fmt.Sprintf("value-%d", i))
+	}
+
+	action := &memoryCheck{}
+	state := MemoryCheckState{
+		RedisURL:         fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxMemoryPercent: 0,
+		MaxMemoryBytes:   0,
+		EndTime:          time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+}
+
+func TestMemoryCheck_Status_CompletedWithThresholdExceeded(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &memoryCheck{}
+	state := MemoryCheckState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxMemoryPercent:  0,
+		MaxMemoryBytes:    0,
+		EndTime:           time.Now().Add(-1 * time.Second).Unix(), // Already expired
+		ThresholdExceeded: true,
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+	// ThresholdExceeded is true and completed, but thresholdViolation may be empty
+	// since the check didn't detect a violation this iteration
+}
+
 func TestMemoryCheck_Describe_WidgetConfiguration(t *testing.T) {
 	// Given
 	action := &memoryCheck{}

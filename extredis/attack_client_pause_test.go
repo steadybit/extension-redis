@@ -215,6 +215,140 @@ func TestClientPauseAttack_Start_ConnectionError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestClientPauseAttack_Start_WithMiniredis(t *testing.T) {
+	// Given - miniredis supports CLIENT PAUSE
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &clientPauseAttack{}
+	state := ClientPauseState{
+		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:        0,
+		PauseMode: "ALL",
+		EndTime:   time.Now().Add(5 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then - miniredis may not support CLIENT PAUSE, but the connection/ping path is exercised
+	if err != nil {
+		assert.Contains(t, err.Error(), "CLIENT PAUSE")
+	} else {
+		require.NotNil(t, result)
+	}
+}
+
+func TestClientPauseAttack_Start_WriteMode(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &clientPauseAttack{}
+	state := ClientPauseState{
+		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:        0,
+		PauseMode: "WRITE",
+		EndTime:   time.Now().Add(5 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Start(context.Background(), &state)
+
+	// Then - exercises the WRITE branch
+	if err != nil {
+		assert.Contains(t, err.Error(), "CLIENT PAUSE")
+	} else {
+		require.NotNil(t, result)
+	}
+}
+
+func TestClientPauseAttack_Start_ExpiredDuration(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &clientPauseAttack{}
+	state := ClientPauseState{
+		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:        0,
+		PauseMode: "ALL",
+		EndTime:   time.Now().Add(-10 * time.Second).Unix(), // Already past
+	}
+
+	// When
+	_, err = action.Start(context.Background(), &state)
+
+	// Then - pause duration must be positive
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "positive")
+}
+
+func TestClientPauseAttack_Stop_ConnectionError(t *testing.T) {
+	// Given
+	action := &clientPauseAttack{}
+	state := ClientPauseState{
+		RedisURL:  "redis://nonexistent:6379",
+		DB:        0,
+		PauseMode: "ALL",
+		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// When
+	_, err := action.Stop(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+}
+
+func TestClientPauseAttack_Stop_WithMiniredis(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &clientPauseAttack{}
+	state := ClientPauseState{
+		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:        0,
+		PauseMode: "ALL",
+		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Stop(context.Background(), &state)
+
+	// Then - miniredis may not support CLIENT UNPAUSE
+	if err != nil {
+		assert.Contains(t, err.Error(), "UNPAUSE")
+	} else {
+		require.NotNil(t, result)
+	}
+}
+
+func TestClientPauseAttack_Status_RemainingNegative(t *testing.T) {
+	// Given - remaining time is negative
+	action := &clientPauseAttack{}
+	state := ClientPauseState{
+		RedisURL:  "redis://localhost:6379",
+		DB:        0,
+		PauseMode: "ALL",
+		EndTime:   time.Now().Add(-100 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+	assert.Contains(t, (*result.Messages)[0].Message, "0 seconds remaining")
+}
+
 func TestNewClientPauseAttack(t *testing.T) {
 	// When
 	action := NewClientPauseAttack()

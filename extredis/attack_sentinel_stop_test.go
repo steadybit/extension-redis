@@ -136,6 +136,88 @@ func TestSentinelStopAttack_Start_NotSentinelMode(t *testing.T) {
 	assert.Contains(t, err.Error(), "DEBUG SLEEP")
 }
 
+func TestSentinelStopAttack_Status_Responsive(t *testing.T) {
+	// Given - miniredis responds to PING, so sentinel appears responsive
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &sentinelStopAttack{}
+	state := SentinelStopState{
+		RedisURL: fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:       0,
+		EndTime:  time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then - miniredis responds, so sentinel is "responsive again"
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+	assert.Contains(t, (*result.Messages)[0].Message, "responsive again")
+}
+
+func TestSentinelStopAttack_Status_TimeElapsed(t *testing.T) {
+	// Given - nonexistent server, time elapsed
+	action := &sentinelStopAttack{}
+	state := SentinelStopState{
+		RedisURL: "redis://nonexistent:26379",
+		DB:       0,
+		EndTime:  time.Now().Add(-10 * time.Second).Unix(), // Already past
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then - remaining <= 0 and can't ping
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+	assert.Contains(t, (*result.Messages)[0].Message, "still unresponsive")
+}
+
+func TestSentinelStopAttack_Status_StillSleeping(t *testing.T) {
+	// Given - nonexistent server, time not yet elapsed
+	action := &sentinelStopAttack{}
+	state := SentinelStopState{
+		RedisURL: "redis://nonexistent:26379",
+		DB:       0,
+		EndTime:  time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then - can't ping and remaining > 0
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+	assert.Contains(t, (*result.Messages)[0].Message, "sleeping")
+}
+
+func TestSentinelStopAttack_Start_ExpiredDuration(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &sentinelStopAttack{}
+	state := SentinelStopState{
+		RedisURL: fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:       0,
+		EndTime:  time.Now().Add(-10 * time.Second).Unix(), // Already past
+	}
+
+	// When
+	_, err = action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "positive")
+}
+
 func TestNewSentinelStopAttack(t *testing.T) {
 	// When
 	action := NewSentinelStopAttack()

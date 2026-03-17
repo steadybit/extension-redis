@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 )
 
 func TestGetEndpointByURL_ReturnsNilOnEmptyConfig(t *testing.T) {
@@ -129,6 +130,34 @@ func TestSpecification_DefaultValues(t *testing.T) {
 	assert.Equal(t, 60, spec.DiscoveryIntervalDatabaseSeconds)
 	assert.Empty(t, spec.DiscoveryAttributesExcludesInstances)
 	assert.Empty(t, spec.DiscoveryAttributesExcludesDatabases)
+}
+
+func TestValidateConfiguration_Success(t *testing.T) {
+	// Given
+	Config.EndpointsJSON = `[{"url":"redis://localhost:6379","name":"test"}]`
+
+	// When
+	ValidateConfiguration()
+
+	// Then
+	require.Len(t, Config.Endpoints, 1)
+	assert.Equal(t, "redis://localhost:6379", Config.Endpoints[0].URL)
+	assert.Equal(t, "test", Config.Endpoints[0].Name)
+}
+
+func TestValidateConfiguration_MultipleEndpoints(t *testing.T) {
+	// Given
+	Config.EndpointsJSON = `[{"url":"redis://host1:6379","name":"a"},{"url":"redis://host2:6379","name":"b","password":"secret","db":3}]`
+
+	// When
+	ValidateConfiguration()
+
+	// Then
+	require.Len(t, Config.Endpoints, 2)
+	assert.Equal(t, "redis://host1:6379", Config.Endpoints[0].URL)
+	assert.Equal(t, "redis://host2:6379", Config.Endpoints[1].URL)
+	assert.Equal(t, "secret", Config.Endpoints[1].Password)
+	assert.Equal(t, 3, Config.Endpoints[1].DB)
 }
 
 func TestGetEndpointByURL_MultipleMatches(t *testing.T) {

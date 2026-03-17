@@ -255,3 +255,78 @@ func TestLatencyCheck_Status_ConnectionError(t *testing.T) {
 	// The connection will fail on ping, resulting in either Error or Messages
 	assert.True(t, result.Error != nil || result.Messages != nil)
 }
+
+func TestLatencyCheck_Status_CompletedWithThresholdExceeded(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &latencyCheck{}
+	state := LatencyCheckState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxLatencyMs:      100,
+		EndTime:           time.Now().Add(-1 * time.Second).Unix(),
+		ThresholdExceeded: true,
+		MaxObservedMs:     200,
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+	// completed + ThresholdExceeded => error
+	require.NotNil(t, result.Error)
+	assert.Contains(t, *result.Error.Detail, "200.00ms")
+}
+
+func TestLatencyCheck_Status_VeryLowThreshold(t *testing.T) {
+	// Given - threshold so low it should be exceeded even by miniredis
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &latencyCheck{}
+	state := LatencyCheckState{
+		RedisURL:     fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxLatencyMs: 0.0001, // Almost zero threshold
+		EndTime:      time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	// Should have metrics
+	require.NotNil(t, result.Metrics)
+	assert.Equal(t, 1, state.TotalPings)
+}
+
+func TestLatencyCheck_Status_MaxObservedTracking(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &latencyCheck{}
+	state := LatencyCheckState{
+		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
+		MaxLatencyMs:  100000, // Very high threshold
+		MaxObservedMs: 0,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	_, err = action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	assert.Greater(t, state.MaxObservedMs, float64(0))
+	assert.Equal(t, 1, state.TotalPings)
+	assert.Equal(t, 0, state.FailedPings)
+}

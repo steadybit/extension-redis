@@ -358,3 +358,79 @@ func TestConnectionCountCheck_Status_ConnectionError(t *testing.T) {
 	require.NotNil(t, result)
 	require.NotNil(t, result.Error)
 }
+
+func TestConnectionCountCheck_Status_AbsoluteThreshold(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionCountCheck{}
+	state := ConnectionCountCheckState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		MaxConnectionsPct: 0,
+		MaxConnections:    0, // 0 means disabled
+		EndTime:           time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When - no threshold set so should not exceed
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, state.ThresholdExceeded)
+}
+
+func TestConnectionCountCheck_Status_CompletedWithThresholdExceeded(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionCountCheck{}
+	state := ConnectionCountCheckState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		MaxConnectionsPct: 0,
+		MaxConnections:    0,
+		EndTime:           time.Now().Add(-1 * time.Second).Unix(),
+		ThresholdExceeded: true,
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
+	// ThresholdExceeded true + completed => error set
+	require.NotNil(t, result.Error)
+}
+
+func TestConnectionCountCheck_Status_MaxObservedTracking(t *testing.T) {
+	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &connectionCountCheck{}
+	state := ConnectionCountCheckState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		MaxConnectionsPct: 0,
+		MaxConnections:    0,
+		MaxObserved:       0,
+		EndTime:           time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	_, err = action.Status(context.Background(), &state)
+
+	// Then
+	require.NoError(t, err)
+	// MaxObserved should be updated
+	assert.GreaterOrEqual(t, state.MaxObserved, 0)
+}

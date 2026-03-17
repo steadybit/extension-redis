@@ -228,6 +228,45 @@ func TestMaxmemoryLimitAttack_Start_ConnectionError(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestMaxmemoryLimitAttack_Start_PingError(t *testing.T) {
+	// Given - nonexistent server
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:     "redis://nonexistent:6379",
+		DB:           0,
+		NewMaxmemory: "10mb",
+		NewPolicy:    "noeviction",
+		EndTime:      time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ping")
+}
+
+func TestMaxmemoryLimitAttack_Status_ConnectionError(t *testing.T) {
+	// Given
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:     "redis://nonexistent:6379",
+		DB:           0,
+		NewMaxmemory: "10mb",
+		NewPolicy:    "noeviction",
+		EndTime:      time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then - should still return a result even on connection error
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.False(t, result.Completed)
+}
+
 func TestMaxmemoryLimitAttack_Stop_WithRestoreErrors(t *testing.T) {
 	// Given - connection fails during ConfigSet, not during client creation
 	action := &maxmemoryLimitAttack{}

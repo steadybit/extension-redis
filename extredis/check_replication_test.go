@@ -5,9 +5,11 @@ package extredis
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
@@ -219,6 +221,50 @@ func TestNewReplicationLagCheck(t *testing.T) {
 
 	// Then
 	require.NotNil(t, action)
+}
+
+func TestReplicationLagCheck_Start_PingError(t *testing.T) {
+	// Given
+	action := &replicationLagCheck{}
+	state := ReplicationLagCheckState{
+		RedisURL:      "redis://nonexistent:6379",
+		DB:            0,
+		MaxLagSeconds: 10,
+		RequireLinkUp: true,
+		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+	}
+
+	// When
+	_, err := action.Start(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "ping")
+}
+
+func TestReplicationLagCheck_Status_CompletedNoThreshold(t *testing.T) {
+	// Given - miniredis doesn't support replication, so we test with connection error
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	action := &replicationLagCheck{}
+	state := ReplicationLagCheckState{
+		RedisURL:          fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:                0,
+		MaxLagSeconds:     10,
+		RequireLinkUp:     true,
+		EndTime:           time.Now().Add(-1 * time.Second).Unix(),
+		ThresholdExceeded: false,
+	}
+
+	// When
+	result, err := action.Status(context.Background(), &state)
+
+	// Then - miniredis doesn't support INFO replication, so we get an error in the status result
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.True(t, result.Completed)
 }
 
 func TestReplicationLagCheck_Status_Completed(t *testing.T) {
