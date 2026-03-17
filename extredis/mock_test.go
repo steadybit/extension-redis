@@ -271,39 +271,6 @@ func TestMock_MaxmemoryLimitAttack_Start_ConfigSet(t *testing.T) {
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func TestMock_KeyDeleteAttack_ScanAndDelete(t *testing.T) {
-	// Given
-	client, mock := redismock.NewClientMock()
-	defer client.Close()
-
-	// Mock SCAN and DELETE operations
-	mock.ExpectScan(0, "test:*", 100).SetVal([]string{"test:key1", "test:key2"}, 0)
-	mock.ExpectGet("test:key1").SetVal("value1")
-	mock.ExpectGet("test:key2").SetVal("value2")
-	mock.ExpectDel("test:key1", "test:key2").SetVal(2)
-
-	// When
-	ctx := context.Background()
-	keys, cursor, err := client.Scan(ctx, 0, "test:*", 100).Result()
-	require.NoError(t, err)
-	assert.Len(t, keys, 2)
-	assert.Equal(t, uint64(0), cursor)
-
-	val1, err := client.Get(ctx, "test:key1").Result()
-	require.NoError(t, err)
-	assert.Equal(t, "value1", val1)
-
-	val2, err := client.Get(ctx, "test:key2").Result()
-	require.NoError(t, err)
-	assert.Equal(t, "value2", val2)
-
-	deleted, err := client.Del(ctx, "test:key1", "test:key2").Result()
-	require.NoError(t, err)
-	assert.Equal(t, int64(2), deleted)
-
-	require.NoError(t, mock.ExpectationsWereMet())
-}
-
 func TestMock_CacheExpirationAttack_SetTTL(t *testing.T) {
 	// Given
 	client, mock := redismock.NewClientMock()

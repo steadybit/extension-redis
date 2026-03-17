@@ -42,8 +42,6 @@ func TestWithMinikube(t *testing.T) {
 			{Name: "validate actions", Test: validateActions},
 			{Name: "discover instances", Test: testDiscoverInstances},
 			{Name: "discover databases", Test: testDiscoverDatabases},
-			{Name: "key delete high volume", Test: testKeyDeleteHighVolume},
-			{Name: "key delete high volume with max keys", Test: testKeyDeleteHighVolumeWithMaxKeys},
 			{Name: "cache expiration high volume", Test: testCacheExpirationHighVolume},
 		},
 	)
@@ -82,71 +80,6 @@ func testDiscoverDatabases(t *testing.T, _ *e2e.Minikube, e *e2e.Extension) {
 	assert.Equal(t, "com.steadybit.extension_redis.database", target.TargetType)
 	assert.NotEmpty(t, target.Attributes["redis.host"])
 	assert.NotEmpty(t, target.Attributes["redis.database.index"])
-}
-
-func testKeyDeleteHighVolume(t *testing.T, m *e2e.Minikube, e *e2e.Extension) {
-	// Populate Redis with a large number of keys (forces multiple SCAN iterations)
-	populateKeys(t, m, "highvol:del:", 2000)
-	defer cleanupKeys(m, "highvol:del:*")
-
-	// Verify keys were created
-	count := countKeys(t, m, "highvol:del:*")
-	require.Equal(t, 2000, count, "Expected 2000 keys to be created")
-
-	target := &action_kit_api.Target{
-		Attributes: map[string][]string{
-			"redis.url":            {"redis://my-redis-master.default.svc.cluster.local:6379"},
-			"redis.database.index": {"0"},
-		},
-	}
-
-	config := map[string]interface{}{
-		"duration":      30000,
-		"pattern":       "highvol:del:*",
-		"maxKeys":       0, // Unlimited - delete all
-		"restoreOnStop": true,
-	}
-
-	// RunAction handles the full prepare/start/status/stop lifecycle
-	execution, err := e.RunAction("com.steadybit.extension_redis.database.key-delete", target, config, nil)
-	require.NoError(t, err)
-
-	err = execution.Wait()
-	require.NoError(t, err)
-
-	// After stop with restoreOnStop=true, keys should be restored
-	count = countKeys(t, m, "highvol:del:*")
-	assert.Equal(t, 2000, count, "All keys should be restored after stop")
-}
-
-func testKeyDeleteHighVolumeWithMaxKeys(t *testing.T, m *e2e.Minikube, e *e2e.Extension) {
-	// Populate Redis with many keys
-	populateKeys(t, m, "highvol:limited:", 2000)
-	defer cleanupKeys(m, "highvol:limited:*")
-
-	target := &action_kit_api.Target{
-		Attributes: map[string][]string{
-			"redis.url":            {"redis://my-redis-master.default.svc.cluster.local:6379"},
-			"redis.database.index": {"0"},
-		},
-	}
-
-	config := map[string]interface{}{
-		"duration":      10000,
-		"pattern":       "highvol:limited:*",
-		"maxKeys":       500,
-		"restoreOnStop": false,
-	}
-
-	execution, err := e.RunAction("com.steadybit.extension_redis.database.key-delete", target, config, nil)
-	require.NoError(t, err)
-
-	err = execution.Wait()
-	require.NoError(t, err)
-
-	// Verify only maxKeys were deleted (remaining = 2000 - 500 = 1500)
-	count := countKeys(t, m, "highvol:limited:*")
-	assert.Equal(t, 1500, count, "Only 500 keys should be deleted, 1500 remaining")
 }
 
 func testCacheExpirationHighVolume(t *testing.T, m *e2e.Minikube, e *e2e.Extension) {

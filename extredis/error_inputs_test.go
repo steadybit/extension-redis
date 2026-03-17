@@ -22,37 +22,6 @@ import (
 // Users frequently misconfigure the Redis connection string.
 // ============================================================
 
-func TestKeyDeleteAttack_Start_MalformedURL(t *testing.T) {
-	tests := []struct {
-		name string
-		url  string
-	}{
-		{"no scheme", "localhost:6379"},
-		{"http scheme", "http://localhost:6379"},
-		{"empty string", ""},
-		{"just scheme", "redis://"},
-		{"garbage", "not-a-url-at-all"},
-		{"ftp scheme", "ftp://localhost:6379"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			action := &keyDeleteAttack{}
-			state := KeyDeleteState{
-				RedisURL:    tc.url,
-				DB:          0,
-				Pattern:     "test:*",
-				MaxKeys:     100,
-				DeletedKeys: []string{},
-				BackupData:  make(map[string]KeyBackupEntry),
-			}
-
-			_, err := action.Start(context.Background(), &state)
-			require.Error(t, err, "Should fail with URL: %q", tc.url)
-		})
-	}
-}
-
 func TestCacheExpirationAttack_Start_MalformedURL(t *testing.T) {
 	tests := []struct {
 		name string
@@ -160,29 +129,6 @@ func TestMaxmemoryLimitAttack_Start_MalformedURL(t *testing.T) {
 // Wrong password tests — users often misconfigure auth credentials.
 // miniredis supports RequireAuth to simulate this.
 // ============================================================
-
-func TestKeyDeleteAttack_Start_WrongPassword(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	mr.RequireAuth("correct-password")
-	mr.Set("test:key1", "value1")
-
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{
-		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
-		Password:    "wrong-password",
-		DB:          0,
-		Pattern:     "test:*",
-		MaxKeys:     100,
-		DeletedKeys: []string{},
-		BackupData:  make(map[string]KeyBackupEntry),
-	}
-
-	_, err = action.Start(context.Background(), &state)
-	require.Error(t, err, "Should fail with wrong password")
-}
 
 func TestCacheExpirationAttack_Start_WrongPassword(t *testing.T) {
 	mr, err := miniredis.Run()
@@ -299,26 +245,6 @@ func TestMemoryFillAttack_Start_WrongPassword(t *testing.T) {
 // ============================================================
 // Prepare with empty/nil target attributes
 // ============================================================
-
-func TestKeyDeleteAttack_Prepare_EmptyTargetAttributes(t *testing.T) {
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{},
-		},
-		Config: map[string]any{
-			"pattern":       "test:*",
-			"maxKeys":       float64(100),
-			"restoreOnStop": true,
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "redis URL not found")
-}
 
 func TestCacheExpirationAttack_Prepare_EmptyTargetAttributes(t *testing.T) {
 	action := &cacheExpirationAttack{}
@@ -444,28 +370,6 @@ func TestMemoryFillAttack_Prepare_EmptyTargetAttributes(t *testing.T) {
 // ============================================================
 // Prepare with URL present but empty value in attribute slice
 // ============================================================
-
-func TestKeyDeleteAttack_Prepare_EmptyURLValue(t *testing.T) {
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{
-				AttrRedisURL: {}, // Empty slice
-			},
-		},
-		Config: map[string]any{
-			"pattern":       "test:*",
-			"maxKeys":       float64(100),
-			"restoreOnStop": true,
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.Error(t, err)
-	assert.Contains(t, err.Error(), "redis URL not found")
-}
 
 func TestCacheExpirationAttack_Prepare_EmptyURLValue(t *testing.T) {
 	action := &cacheExpirationAttack{}
@@ -689,33 +593,6 @@ func TestReplicationLagCheck_Start_WrongPassword(t *testing.T) {
 // Stop with connection errors — Redis becomes unavailable during attack
 // ============================================================
 
-func TestKeyDeleteAttack_Stop_ConnectionLost(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-
-	addr := mr.Addr()
-	mr.Set("test:key1", "value1")
-
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{
-		RedisURL:      fmt.Sprintf("redis://%s", addr),
-		DB:            0,
-		Pattern:       "test:*",
-		MaxKeys:       100,
-		RestoreOnStop: true,
-		DeletedKeys:   []string{"test:key1"},
-		BackupData:    map[string]KeyBackupEntry{"test:key1": {DumpValue: "dummy", TTLSeconds: -1, KeyType: "string"}},
-	}
-
-	// Close Redis before stop — simulates connection loss
-	mr.Close()
-
-	// Stop should handle connection loss gracefully
-	_, err = action.Stop(context.Background(), &state)
-	// May or may not error, but should not panic
-	_ = err
-}
-
 func TestCacheExpirationAttack_Stop_ConnectionLost(t *testing.T) {
 	mr, err := miniredis.Run()
 	require.NoError(t, err)
@@ -748,57 +625,6 @@ func TestCacheExpirationAttack_Stop_ConnectionLost(t *testing.T) {
 // ============================================================
 // Prepare with various invalid config values
 // ============================================================
-
-func TestKeyDeleteAttack_Prepare_NegativeMaxKeys(t *testing.T) {
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{
-				AttrRedisURL:      {"redis://localhost:6379"},
-				AttrDatabaseIndex: {"0"},
-			},
-		},
-		Config: map[string]any{
-			"pattern":       "test:*",
-			"maxKeys":       float64(-10),
-			"restoreOnStop": false,
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	// Negative maxKeys should be accepted (treated as 0/unlimited by int conversion)
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.NoError(t, err)
-	// Verify state was set (negative value is stored as-is)
-	assert.Equal(t, -10, state.MaxKeys)
-}
-
-func TestKeyDeleteAttack_Start_NegativeMaxKeys_BehavesAsUnlimited(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	for i := 0; i < 50; i++ {
-		mr.Set(fmt.Sprintf("neg:key:%d", i), fmt.Sprintf("value-%d", i))
-	}
-
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{
-		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:            0,
-		Pattern:       "neg:key:*",
-		MaxKeys:       -5, // Negative: the check `state.MaxKeys > 0` is false, so unlimited
-		RestoreOnStop: false,
-		DeletedKeys:   []string{},
-		BackupData:    make(map[string]KeyBackupEntry),
-	}
-
-	result, err := action.Start(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.Len(t, state.DeletedKeys, 50, "Negative maxKeys should behave as unlimited")
-}
 
 func TestCacheExpirationAttack_Prepare_NegativeTTL(t *testing.T) {
 	action := &cacheExpirationAttack{}
@@ -877,30 +703,6 @@ func TestBigKeyAttack_Prepare_NegativeKeySize(t *testing.T) {
 // Prepare with invalid database index in target attributes
 // ============================================================
 
-func TestKeyDeleteAttack_Prepare_InvalidDatabaseIndex(t *testing.T) {
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{
-				AttrRedisURL:      {"redis://localhost:6379"},
-				AttrDatabaseIndex: {"not-a-number"},
-			},
-		},
-		Config: map[string]any{
-			"pattern":       "test:*",
-			"maxKeys":       float64(100),
-			"restoreOnStop": false,
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	// strconv.Atoi will fail silently and return 0
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.NoError(t, err)
-	assert.Equal(t, 0, state.DB, "Invalid DB index should default to 0")
-}
-
 func TestCacheExpirationAttack_Prepare_InvalidDatabaseIndex(t *testing.T) {
 	action := &cacheExpirationAttack{}
 	state := CacheExpirationState{}
@@ -926,116 +728,9 @@ func TestCacheExpirationAttack_Prepare_InvalidDatabaseIndex(t *testing.T) {
 	assert.Equal(t, 0, state.DB, "Invalid DB index should default to 0")
 }
 
-func TestKeyDeleteAttack_Prepare_NegativeDatabaseIndex(t *testing.T) {
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{
-				AttrRedisURL:      {"redis://localhost:6379"},
-				AttrDatabaseIndex: {"-1"},
-			},
-		},
-		Config: map[string]any{
-			"pattern":       "test:*",
-			"maxKeys":       float64(100),
-			"restoreOnStop": false,
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.NoError(t, err)
-	assert.Equal(t, -1, state.DB, "Negative DB index is accepted (Redis will reject at connection time)")
-}
-
-func TestKeyDeleteAttack_Prepare_VeryLargeDatabaseIndex(t *testing.T) {
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{
-				AttrRedisURL:      {"redis://localhost:6379"},
-				AttrDatabaseIndex: {"99999"},
-			},
-		},
-		Config: map[string]any{
-			"pattern":       "test:*",
-			"maxKeys":       float64(100),
-			"restoreOnStop": false,
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	_, err := action.Prepare(context.Background(), &state, req)
-	require.NoError(t, err)
-	assert.Equal(t, 99999, state.DB, "Large DB index is accepted (Redis will reject at connection time)")
-}
-
 // ============================================================
 // Prepare with special characters in pattern
 // ============================================================
-
-func TestKeyDeleteAttack_Prepare_SpecialCharPattern(t *testing.T) {
-	tests := []struct {
-		name    string
-		pattern string
-	}{
-		{"glob with question mark", "test:key?"},
-		{"glob with brackets", "test:key[0-9]"},
-		{"unicode pattern", "test:clé:*"},
-		{"spaces in pattern", "test: key :*"},
-		{"very long pattern", "a:b:c:d:e:f:g:h:i:j:k:l:m:n:o:p:q:r:s:t:u:v:w:x:y:z:*"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			action := &keyDeleteAttack{}
-			state := KeyDeleteState{}
-			req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-				Target: &action_kit_api.Target{
-					Attributes: map[string][]string{
-						AttrRedisURL:      {"redis://localhost:6379"},
-						AttrDatabaseIndex: {"0"},
-					},
-				},
-				Config: map[string]any{
-					"pattern":       tc.pattern,
-					"maxKeys":       float64(100),
-					"restoreOnStop": false,
-				},
-				ExecutionId: uuid.New(),
-			})
-
-			_, err := action.Prepare(context.Background(), &state, req)
-			require.NoError(t, err, "Pattern %q should be accepted at prepare time", tc.pattern)
-			assert.Equal(t, tc.pattern, state.Pattern)
-		})
-	}
-}
-
-func TestKeyDeleteAttack_Start_SpecialCharPattern_NoMatch(t *testing.T) {
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	mr.Set("test:key1", "value1")
-
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{
-		RedisURL:    fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:          0,
-		Pattern:     "test:key[a-z]", // Won't match "test:key1"
-		MaxKeys:     100,
-		DeletedKeys: []string{},
-		BackupData:  make(map[string]KeyBackupEntry),
-	}
-
-	result, err := action.Start(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.Empty(t, state.DeletedKeys, "Pattern should not match numeric keys")
-}
 
 // ============================================================
 // Checks — Prepare with missing URL

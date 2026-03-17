@@ -75,16 +75,6 @@ Discovers Redis databases (db0-db15) and exposes:
   - `fillRate` - Rate to fill in MB/s (default: 10)
   - `maxMemory` - Maximum memory to fill in MB (default: 100)
 
-#### Delete Keys
-- **ID**: `com.steadybit.extension_redis.database.key-delete`
-- **Target**: Database
-- **Description**: Deletes keys matching a pattern to simulate data loss
-- **Parameters**:
-  - `duration` - How long the attack lasts
-  - `pattern` - Key pattern to match (e.g., "cache:*")
-  - `maxKeys` - Maximum keys to delete (default: 100)
-  - `restoreOnStop` - Restore deleted keys when attack stops (default: true)
-
 #### Exhaust Connections
 - **ID**: `com.steadybit.extension_redis.instance.connection-exhaustion`
 - **Target**: Instance

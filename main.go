@@ -46,7 +46,6 @@ func main() {
 	discovery_kit_sdk.Register(extredis.NewRedisDatabaseDiscovery(ctx))
 
 	action_kit_sdk.RegisterAction(extredis.NewMemoryFillAttack())
-	action_kit_sdk.RegisterAction(extredis.NewKeyDeleteAttack())
 	action_kit_sdk.RegisterAction(extredis.NewConnectionExhaustionAttack())
 	action_kit_sdk.RegisterAction(extredis.NewClientPauseAttack())
 	action_kit_sdk.RegisterAction(extredis.NewMaxmemoryLimitAttack())

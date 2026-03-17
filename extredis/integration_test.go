@@ -396,62 +396,6 @@ func TestIntegration_DatabaseDiscovery_DiscoverTargets(t *testing.T) {
 	assert.True(t, db0Found, "db0 should be discovered")
 }
 
-// Integration tests for key operations
-
-func TestIntegration_KeyDeleteAttack_StartStatusStop(t *testing.T) {
-	redisURL := skipIfNoRedis(t)
-
-	// Create test keys
-	client, err := clients.CreateRedisClientFromURL(redisURL, "", 0)
-	require.NoError(t, err)
-	defer client.Close()
-
-	ctx := context.Background()
-	testPrefix := fmt.Sprintf("test:delete:%s:", uuid.New().String()[:8])
-	client.Set(ctx, testPrefix+"key1", "value1", 0)
-	client.Set(ctx, testPrefix+"key2", "value2", 0)
-
-	action := &keyDeleteAttack{}
-	state := KeyDeleteState{
-		RedisURL:      redisURL,
-		DB:            0,
-		Pattern:       testPrefix + "*",
-		MaxKeys:       100,
-		RestoreOnStop: true,
-		DeletedKeys:   []string{},
-		BackupData:    make(map[string]KeyBackupEntry),
-		EndTime:       time.Now().Add(5 * time.Second).Unix(),
-	}
-
-	// Start (deletes keys)
-	result, err := action.Start(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.Len(t, state.DeletedKeys, 2)
-
-	// Verify keys are deleted
-	exists, _ := client.Exists(ctx, testPrefix+"key1").Result()
-	assert.Equal(t, int64(0), exists)
-
-	// Status
-	statusResult, err := action.Status(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, statusResult)
-
-	// Stop (restores keys)
-	stopResult, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, stopResult)
-
-	// Verify keys are restored
-	val, err := client.Get(ctx, testPrefix+"key1").Result()
-	require.NoError(t, err)
-	assert.Equal(t, "value1", val)
-
-	// Cleanup
-	client.Del(ctx, testPrefix+"key1", testPrefix+"key2")
-}
-
 func TestIntegration_CacheExpirationAttack_StartStatusStop(t *testing.T) {
 	redisURL := skipIfNoRedis(t)
 
