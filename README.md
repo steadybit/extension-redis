@@ -65,16 +65,6 @@ Discovers Redis databases (db0-db15) and exposes:
 
 ### Attacks
 
-#### Fill Memory
-- **ID**: `com.steadybit.extension_redis.instance.memory-fill`
-- **Target**: Instance
-- **Description**: Fills Redis memory with random data to simulate memory pressure
-- **Parameters**:
-  - `duration` - How long to fill memory
-  - `valueSize` - Size of each value in bytes (default: 10KB)
-  - `fillRate` - Rate to fill in MB/s (default: 10)
-  - `maxMemory` - Maximum memory to fill in MB (default: 100)
-
 #### Exhaust Connections
 - **ID**: `com.steadybit.extension_redis.instance.connection-exhaustion`
 - **Target**: Instance
@@ -113,18 +103,6 @@ Discovers Redis databases (db0-db15) and exposes:
   - `maxKeys` - Maximum keys to affect (default: 100)
   - `restoreOnStop` - Restore keys with original values and TTLs when attack stops (default: false)
 - **Reversibility**: Reversible when `restoreOnStop` is enabled - recreates expired keys with original values and TTLs
-
-#### Create Big Keys
-- **ID**: `com.steadybit.extension_redis.instance.big-key`
-- **Target**: Instance
-- **Description**: Continuously creates and deletes large keys to stress Redis memory handling
-- **Parameters**:
-  - `duration` - How long to run the big key cycles
-  - `keySize` - Size per key in MB (default: 10)
-  - `numKeys` - Number of big keys to create per cycle (default: 1)
-- **Behavior**: Keys are created, held for 500ms, then deleted in continuous cycles throughout the attack duration
-- **Reversibility**: Fully reversible - any remaining keys are deleted on stop
-- **Note**: Total size per cycle (keySize × numKeys) must fit within Redis maxmemory limit. The attack will fail with an error if Redis cannot allocate memory for the keys.
 
 #### Stop Sentinel
 - **ID**: `com.steadybit.extension_redis.instance.sentinel-stop`

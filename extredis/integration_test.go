@@ -113,43 +113,6 @@ func TestIntegration_MaxmemoryLimitAttack_StartStop(t *testing.T) {
 	require.NotNil(t, stopResult)
 }
 
-func TestIntegration_MemoryFillAttack_StartStatusStop(t *testing.T) {
-	redisURL := skipIfNoRedis(t)
-
-	action := &memoryFillAttack{}
-	state := MemoryFillState{
-		RedisURL:    redisURL,
-		DB:          0,
-		KeyPrefix:   fmt.Sprintf("steadybit-test-%s-", uuid.New().String()[:8]),
-		ValueSize:   1024,
-		FillRate:    100,
-		MaxMemory:   1, // 1 MB
-		EndTime:     time.Now().Add(2 * time.Second).Unix(),
-		CreatedKeys: []string{},
-	}
-
-	// Start
-	result, err := action.Start(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	// Wait for some keys to be created
-	time.Sleep(500 * time.Millisecond)
-
-	// Status
-	statusResult, err := action.Status(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, statusResult)
-
-	// Wait for completion
-	time.Sleep(2 * time.Second)
-
-	// Stop (cleans up keys)
-	stopResult, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, stopResult)
-}
-
 func TestIntegration_ConnectionExhaustionAttack_StartStatusStop(t *testing.T) {
 	redisURL := skipIfNoRedis(t)
 
@@ -444,43 +407,4 @@ func TestIntegration_CacheExpirationAttack_StartStatusStop(t *testing.T) {
 
 	// Cleanup
 	client.Del(ctx, testPrefix+"key1", testPrefix+"key2")
-}
-
-// Integration test for BigKeyAttack
-func TestIntegration_BigKeyAttack_StartStatusStop(t *testing.T) {
-	redisURL := skipIfNoRedis(t)
-
-	action := &bigKeyAttack{}
-	executionId := uuid.New().String()[:8]
-	state := BigKeyState{
-		RedisURL:    redisURL,
-		DB:          0,
-		KeyPrefix:   fmt.Sprintf("steadybit-bigkey-%s-", executionId),
-		KeySize:     10 * 1024, // 10KB
-		NumKeys:     2,
-		CreatedKeys: []string{},
-		EndTime:     time.Now().Add(3 * time.Second).Unix(),
-		ExecutionId: executionId,
-	}
-
-	// Start
-	result, err := action.Start(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-
-	// Wait for keys to be created
-	time.Sleep(500 * time.Millisecond)
-
-	// Status
-	statusResult, err := action.Status(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, statusResult)
-
-	// Wait for completion
-	time.Sleep(3 * time.Second)
-
-	// Stop (cleans up keys)
-	stopResult, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, stopResult)
 }
