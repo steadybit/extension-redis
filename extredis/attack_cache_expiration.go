@@ -336,6 +336,12 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 				TTLSeconds: ttlSeconds,
 			}
 		}
+
+		log.Info().
+			Int("keyCount", len(state.BackupData)).
+			Int64("totalBytes", state.TotalBackupBytes).
+			Str("pattern", state.Pattern).
+			Msg("Backup phase complete: all key values and TTLs saved before modification")
 	}
 
 	// Lock keys to prevent overlapping parallel attacks
@@ -501,12 +507,34 @@ func (a *cacheExpirationAttack) Stop(ctx context.Context, state *CacheExpiration
 	}
 
 	expiredAndRestored := restoredCount - alreadyExisted
+	failedCount := len(state.BackupData) - restoredCount
+
+	if failedCount > 0 {
+		log.Error().
+			Int("restoredCount", restoredCount).
+			Int("totalKeys", len(state.BackupData)).
+			Int("failed", failedCount).
+			Str("pattern", state.Pattern).
+			Msg("Restore phase completed with failures")
+
+		return nil, fmt.Errorf(
+			"restore failed: %d/%d keys could not be restored (%d recreated after expiration, %d had TTL restored). Check logs for per-key errors",
+			failedCount, len(state.BackupData), expiredAndRestored, alreadyExisted)
+	}
+
+	log.Info().
+		Int("restoredCount", restoredCount).
+		Int("totalKeys", len(state.BackupData)).
+		Int("recreated", expiredAndRestored).
+		Int("ttlRestored", alreadyExisted).
+		Str("pattern", state.Pattern).
+		Msg("Restore phase complete: all keys restored successfully")
 
 	return &action_kit_api.StopResult{
 		Messages: extutil.Ptr([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Restored %d of %d keys (%d were recreated after expiration, %d had TTL restored)", restoredCount, len(state.BackupData), expiredAndRestored, alreadyExisted),
+				Message: fmt.Sprintf("Restore complete: %d/%d keys restored (%d recreated after expiration, %d had TTL restored)", restoredCount, len(state.BackupData), expiredAndRestored, alreadyExisted),
 			},
 		}),
 	}, nil
