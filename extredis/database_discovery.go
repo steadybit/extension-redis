@@ -85,7 +85,6 @@ func (d *redisDatabaseDiscovery) DiscoverTargets(ctx context.Context) ([]discove
 }
 
 func discoverDatabases(ctx context.Context, endpoint *config.RedisEndpoint) ([]discovery_kit_api.Target, error) {
-	// Parse URL first to fail fast on invalid URLs
 	parsedURL, err := url.Parse(endpoint.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Redis URL: %w", err)
@@ -103,28 +102,31 @@ func discoverDatabases(ctx context.Context, endpoint *config.RedisEndpoint) ([]d
 	}
 	defer client.Close()
 
-	// Ping to verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
-	// Get keyspace info to find databases with keys
+	instanceName := endpoint.Name
+	if instanceName == "" {
+		instanceName = fmt.Sprintf("%s:%s", host, port)
+	}
+
+	// Cluster mode: only db0 is supported
+	serverInfo, err := clients.GetRedisInfo(ctx, client, "server")
+	if err == nil && serverInfo["redis_mode"] == "cluster" {
+		return []discovery_kit_api.Target{
+			buildDatabaseTarget(host, port, instanceName, endpoint.URL, "0", "db0"),
+		}, nil
+	}
+
+	// Standalone: discover databases from keyspace info
 	keyspaceInfo, err := clients.GetRedisInfo(ctx, client, "keyspace")
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to get keyspace info")
 		keyspaceInfo = make(map[string]string)
 	}
 
-	// Build target name
-	instanceName := endpoint.Name
-	if instanceName == "" {
-		instanceName = fmt.Sprintf("%s:%s", host, port)
-	}
-
 	var targets []discovery_kit_api.Target
-
-	// Parse keyspace info to find databases
-	// Format: db0:keys=1,expires=0,avg_ttl=0
 	dbPattern := regexp.MustCompile(`^db(\d+)$`)
 
 	for key := range keyspaceInfo {
@@ -135,48 +137,32 @@ func discoverDatabases(ctx context.Context, endpoint *config.RedisEndpoint) ([]d
 
 		dbIndex := matches[1]
 		dbIndexInt, _ := strconv.Atoi(dbIndex)
-
 		dbName := fmt.Sprintf("db%s", dbIndex)
 
-		attributes := map[string][]string{
-			AttrRedisURL:      {endpoint.URL},
+		target := buildDatabaseTarget(host, port, instanceName, endpoint.URL, dbIndex, dbName)
+		target.Id = fmt.Sprintf("%s:%s/db%d", host, port, dbIndexInt)
+		targets = append(targets, target)
+	}
+
+	if len(targets) == 0 {
+		targets = append(targets, buildDatabaseTarget(host, port, instanceName, endpoint.URL, "0", "db0"))
+	}
+
+	return targets, nil
+}
+
+func buildDatabaseTarget(host, port, instanceName, redisURL, dbIndex, dbName string) discovery_kit_api.Target {
+	return discovery_kit_api.Target{
+		Id:         fmt.Sprintf("%s:%s/%s", host, port, dbName),
+		TargetType: TargetTypeDatabase,
+		Label:      fmt.Sprintf("%s/%s", instanceName, dbName),
+		Attributes: map[string][]string{
+			AttrRedisURL:      {redisURL},
 			AttrRedisHost:     {host},
 			AttrRedisPort:     {port},
 			AttrRedisName:     {instanceName},
 			AttrDatabaseIndex: {dbIndex},
 			AttrDatabaseName:  {dbName},
-		}
-
-		target := discovery_kit_api.Target{
-			Id:         fmt.Sprintf("%s:%s/db%d", host, port, dbIndexInt),
-			TargetType: TargetTypeDatabase,
-			Label:      fmt.Sprintf("%s/%s", instanceName, dbName),
-			Attributes: attributes,
-		}
-
-		targets = append(targets, target)
+		},
 	}
-
-	// If no databases found with keys, add db0 as default
-	if len(targets) == 0 {
-		attributes := map[string][]string{
-			AttrRedisURL:      {endpoint.URL},
-			AttrRedisHost:     {host},
-			AttrRedisPort:     {port},
-			AttrRedisName:     {instanceName},
-			AttrDatabaseIndex: {"0"},
-			AttrDatabaseName:  {"db0"},
-		}
-
-		target := discovery_kit_api.Target{
-			Id:         fmt.Sprintf("%s:%s/db0", host, port),
-			TargetType: TargetTypeDatabase,
-			Label:      fmt.Sprintf("%s/db0", instanceName),
-			Attributes: attributes,
-		}
-
-		targets = append(targets, target)
-	}
-
-	return targets, nil
 }

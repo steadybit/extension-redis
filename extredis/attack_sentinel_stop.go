@@ -107,6 +107,9 @@ func (a *sentinelStopAttack) Start(ctx context.Context, state *SentinelStopState
 		})
 	} else {
 		redisMode := info["redis_mode"]
+		if redisMode == "cluster" {
+			return nil, fmt.Errorf("sentinel stop is not applicable to Redis Cluster nodes (redis_mode=cluster). Use Client Pause or Connection Exhaustion to disrupt cluster nodes")
+		}
 		if redisMode != "sentinel" {
 			log.Warn().Str("redis_mode", redisMode).Msg("Target instance is not running in sentinel mode")
 			messages = append(messages, action_kit_api.Message{

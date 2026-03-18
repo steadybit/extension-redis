@@ -9,21 +9,24 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/action-kit/go/action_kit_sdk"
 	"github.com/steadybit/extension-kit/extbuild"
 	"github.com/steadybit/extension-kit/extutil"
 	"github.com/steadybit/extension-redis/clients"
+	"github.com/steadybit/extension-redis/config"
 )
 
 type clientPauseAttack struct{}
 
 type ClientPauseState struct {
-	RedisURL  string `json:"redisUrl"`
-	Password  string `json:"password"`
-	DB        int    `json:"db"`
-	PauseMode string `json:"pauseMode"`
-	EndTime   int64  `json:"endTime"`
+	RedisURL    string `json:"redisUrl"`
+	Password    string `json:"password"`
+	DB          int    `json:"db"`
+	PauseMode   string `json:"pauseMode"`
+	EndTime     int64  `json:"endTime"`
+	ClusterMode bool   `json:"clusterMode"`
 }
 
 var _ action_kit_sdk.Action[ClientPauseState] = (*clientPauseAttack)(nil)
@@ -108,45 +111,64 @@ func (a *clientPauseAttack) Prepare(ctx context.Context, state *ClientPauseState
 	state.PauseMode = pauseMode
 	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
 
+	endpoint := config.GetEndpointByURL(state.RedisURL)
+	if endpoint != nil {
+		isCluster, err := clients.DetectClusterMode(ctx, endpoint)
+		if err == nil {
+			state.ClusterMode = isCluster
+		}
+	}
+
 	return nil, nil
 }
 
 func (a *clientPauseAttack) Start(ctx context.Context, state *ClientPauseState) (*action_kit_api.StartResult, error) {
-	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Redis client: %w", err)
-	}
-
-	// Verify connection
-	if err := clients.PingRedis(ctx, client); err != nil {
-		return nil, fmt.Errorf("failed to ping Redis: %w", err)
-	}
-
-	// Calculate pause duration in milliseconds
 	pauseDurationMs := (state.EndTime - time.Now().Unix()) * 1000
 	if pauseDurationMs <= 0 {
 		return nil, fmt.Errorf("pause duration must be positive")
 	}
 
-	// Execute CLIENT PAUSE command
-	// CLIENT PAUSE timeout [WRITE | ALL]
-	args := []interface{}{"PAUSE", pauseDurationMs}
-	if state.PauseMode == "WRITE" {
-		args = append(args, "WRITE")
-	} else {
-		args = append(args, "ALL")
+	pauseNode := func(ctx context.Context, nodeClient *redis.Client, addr string) error {
+		if err := clients.PingRedis(ctx, nodeClient); err != nil {
+			return fmt.Errorf("failed to ping Redis: %w", err)
+		}
+
+		args := []interface{}{"PAUSE", pauseDurationMs}
+		if state.PauseMode == "WRITE" {
+			args = append(args, "WRITE")
+		} else {
+			args = append(args, "ALL")
+		}
+
+		if err := nodeClient.Do(ctx, append([]interface{}{"CLIENT"}, args...)...).Err(); err != nil {
+			return fmt.Errorf("failed to execute CLIENT PAUSE: %w", err)
+		}
+		return nil
 	}
 
-	err = client.Do(ctx, append([]interface{}{"CLIENT"}, args...)...).Err()
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute CLIENT PAUSE: %w", err)
+	endpoint := config.GetEndpointByURL(state.RedisURL)
+	nodeCount := 1
+	if state.ClusterMode && endpoint != nil {
+		if err := clients.ForEachMaster(ctx, endpoint, pauseNode); err != nil {
+			return nil, err
+		}
+		masters, _, _ := clients.GetMasterNodes(ctx, endpoint)
+		nodeCount = len(masters)
+	} else {
+		client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Redis client: %w", err)
+		}
+		if err := pauseNode(ctx, client, client.Options().Addr); err != nil {
+			return nil, err
+		}
 	}
 
 	return &action_kit_api.StartResult{
 		Messages: extutil.Ptr([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Paused Redis clients (mode: %s) for %d ms", state.PauseMode, pauseDurationMs),
+				Message: fmt.Sprintf("Paused Redis clients (mode: %s) for %d ms on %d node(s)", state.PauseMode, pauseDurationMs, nodeCount),
 			},
 		}),
 	}, nil
@@ -173,15 +195,23 @@ func (a *clientPauseAttack) Status(ctx context.Context, state *ClientPauseState)
 }
 
 func (a *clientPauseAttack) Stop(ctx context.Context, state *ClientPauseState) (*action_kit_api.StopResult, error) {
-	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Redis client: %w", err)
+	unpauseNode := func(ctx context.Context, nodeClient *redis.Client, addr string) error {
+		return nodeClient.Do(ctx, "CLIENT", "UNPAUSE").Err()
 	}
 
-	// CLIENT UNPAUSE resumes normal client processing
-	err = client.Do(ctx, "CLIENT", "UNPAUSE").Err()
-	if err != nil {
-		return nil, fmt.Errorf("failed to execute CLIENT UNPAUSE: %w", err)
+	endpoint := config.GetEndpointByURL(state.RedisURL)
+	if state.ClusterMode && endpoint != nil {
+		if err := clients.ForEachMaster(ctx, endpoint, unpauseNode); err != nil {
+			return nil, fmt.Errorf("failed to execute CLIENT UNPAUSE on cluster: %w", err)
+		}
+	} else {
+		client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Redis client: %w", err)
+		}
+		if err := unpauseNode(ctx, client, ""); err != nil {
+			return nil, fmt.Errorf("failed to execute CLIENT UNPAUSE: %w", err)
+		}
 	}
 
 	return &action_kit_api.StopResult{

@@ -14,9 +14,22 @@ type RedisEndpoint struct {
 	URL                string `json:"url"`                          // Redis connection URL (redis:// or rediss://)
 	Password           string `json:"password,omitempty"`           // Redis password
 	Username           string `json:"username,omitempty"`           // Redis username (Redis 6+ ACL)
-	DB                 int    `json:"db,omitempty"`                 // Database number (default 0)
+	DB                 int    `json:"db,omitempty"`                 // Database number (default 0, ignored in cluster mode)
 	InsecureSkipVerify bool   `json:"insecureSkipVerify,omitempty"` // Skip TLS verification
 	Name               string `json:"name,omitempty"`               // Friendly name for this endpoint
+
+	// Cluster support
+	ClusterMode        string `json:"clusterMode,omitempty"`        // "auto" (default), "standalone", or "cluster"
+	MaxBackupSizeBytes int64  `json:"maxBackupSizeBytes,omitempty"` // Max total backup size for cache expiration (default 10MB)
+}
+
+const DefaultMaxBackupSizeBytes = 10 * 1024 * 1024 // 10MB
+
+func (e *RedisEndpoint) GetMaxBackupSizeBytes() int64 {
+	if e.MaxBackupSizeBytes > 0 {
+		return e.MaxBackupSizeBytes
+	}
+	return DefaultMaxBackupSizeBytes
 }
 
 type Specification struct {

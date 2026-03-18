@@ -31,6 +31,7 @@ type ConnectionExhaustionState struct {
 	NumConnections  int    `json:"numConnections"`
 	EndTime         int64  `json:"endTime"`
 	ConnectionCount int    `json:"connectionCount"`
+	ClusterMode     bool   `json:"clusterMode"`
 }
 
 // Track active connections for cleanup
@@ -157,6 +158,14 @@ func (a *connectionExhaustionAttack) Prepare(ctx context.Context, state *Connect
 	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
 	state.ConnectionCount = 0
 
+	endpoint := config.GetEndpointByURL(state.RedisURL)
+	if endpoint != nil {
+		isCluster, err := clients.DetectClusterMode(ctx, endpoint)
+		if err == nil {
+			state.ClusterMode = isCluster
+		}
+	}
+
 	return nil, nil
 }
 
@@ -170,54 +179,84 @@ func (a *connectionExhaustionAttack) Start(ctx context.Context, state *Connectio
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
-	// Generate unique key for this attack instance
-	attackKey := fmt.Sprintf("%s-%d", state.RedisURL, time.Now().UnixNano())
+	// Determine target addresses (cluster: distribute across masters, standalone: single node)
+	type targetNode struct {
+		url            string
+		connectionsNum int
+	}
+	var targets []targetNode
 
-	// Open connections - using single-connection clients to control exact count
+	if state.ClusterMode {
+		endpoint := config.GetEndpointByURL(state.RedisURL)
+		if endpoint != nil {
+			masters, _, err := clients.GetMasterNodes(ctx, endpoint)
+			if err == nil && len(masters) > 0 {
+				perNode := state.NumConnections / len(masters)
+				remainder := state.NumConnections % len(masters)
+				scheme := "redis"
+				if strings.HasPrefix(state.RedisURL, "rediss://") {
+					scheme = "rediss"
+				}
+				for i, m := range masters {
+					n := perNode
+					if i < remainder {
+						n++
+					}
+					targets = append(targets, targetNode{
+						url:            fmt.Sprintf("%s://%s", scheme, m.Addr),
+						connectionsNum: n,
+					})
+				}
+			}
+		}
+	}
+
+	if len(targets) == 0 {
+		targets = []targetNode{{url: state.RedisURL, connectionsNum: state.NumConnections}}
+	}
+
+	attackKey := fmt.Sprintf("%s-%d", state.RedisURL, time.Now().UnixNano())
 	var connections []*redis.Client
 	successCount := 0
 	failCount := 0
 	var lastErr error
 
-	for i := 0; i < state.NumConnections; i++ {
-		// Use single-connection client (PoolSize=1) to ensure exact connection count
-		client, err := createSingleConnectionClient(state.RedisURL, state.DB)
-		if err != nil {
-			failCount++
-			lastErr = err
-			log.Debug().Err(err).Int("index", i).Msg("Failed to create connection")
-			continue
-		}
-
-		// Verify the connection works (this also establishes the connection)
-		pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		err = client.Ping(pingCtx).Err()
-		cancel()
-		if err != nil {
-			client.Close()
-			failCount++
-			lastErr = err
-			log.Debug().Err(err).Int("index", i).Msg("Failed to ping on new connection")
-			// Stop trying if we're hitting connection limits
-			if failCount > 5 && successCount > 0 {
-				log.Info().Int("successCount", successCount).Int("failCount", failCount).Msg("Stopping connection attempts after repeated failures")
-				break
+	for _, target := range targets {
+		for i := 0; i < target.connectionsNum; i++ {
+			client, err := createSingleConnectionClient(target.url, state.DB)
+			if err != nil {
+				failCount++
+				lastErr = err
+				log.Debug().Err(err).Str("target", target.url).Int("index", i).Msg("Failed to create connection")
+				continue
 			}
-			continue
-		}
 
-		connections = append(connections, client)
-		successCount++
+			pingCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+			err = client.Ping(pingCtx).Err()
+			cancel()
+			if err != nil {
+				client.Close()
+				failCount++
+				lastErr = err
+				log.Debug().Err(err).Str("target", target.url).Int("index", i).Msg("Failed to ping on new connection")
+				if failCount > 5 && successCount > 0 {
+					log.Info().Int("successCount", successCount).Int("failCount", failCount).Msg("Stopping connection attempts after repeated failures")
+					break
+				}
+				continue
+			}
+
+			connections = append(connections, client)
+			successCount++
+		}
 	}
 
-	// Store connections for cleanup
 	activeConnectionsMutex.Lock()
 	activeConnections[attackKey] = connections
 	activeConnectionsMutex.Unlock()
 
 	state.ConnectionCount = successCount
 
-	// If no connections were opened, return an error
 	if successCount == 0 {
 		errMsg := fmt.Sprintf("Failed to open any connections to Redis. Attempted %d connections.", state.NumConnections)
 		if lastErr != nil {
@@ -236,7 +275,7 @@ func (a *connectionExhaustionAttack) Start(ctx context.Context, state *Connectio
 	messages := []action_kit_api.Message{
 		{
 			Level:   extutil.Ptr(action_kit_api.Info),
-			Message: fmt.Sprintf("Opened %d connections to Redis (each with PoolSize=1)", successCount),
+			Message: fmt.Sprintf("Opened %d connections across %d node(s) (each with PoolSize=1)", successCount, len(targets)),
 		},
 	}
 
@@ -247,7 +286,6 @@ func (a *connectionExhaustionAttack) Start(ctx context.Context, state *Connectio
 		})
 	}
 
-	// Start background goroutine to keep connections alive
 	go a.keepAlive(attackKey, state.EndTime)
 
 	return &action_kit_api.StartResult{

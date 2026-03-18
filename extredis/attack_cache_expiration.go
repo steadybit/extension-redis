@@ -8,6 +8,7 @@ import (
 	"context"
 	"fmt"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/rs/zerolog/log"
@@ -16,6 +17,7 @@ import (
 	"github.com/steadybit/extension-kit/extbuild"
 	"github.com/steadybit/extension-kit/extutil"
 	"github.com/steadybit/extension-redis/clients"
+	"github.com/steadybit/extension-redis/config"
 )
 
 type cacheExpirationAttack struct{}
@@ -37,6 +39,43 @@ type CacheExpirationState struct {
 	RestoreOnStop    bool                 `json:"restoreOnStop"`
 	EndTime          int64                `json:"endTime"`
 	SkippedNonString int                  `json:"skippedNonString"`
+	ClusterMode      bool                 `json:"clusterMode"`
+	TotalBackupBytes int64                `json:"totalBackupBytes"`
+	MaxBackupBytes   int64                `json:"maxBackupBytes"`
+}
+
+// lockedKeys tracks keys currently under attack to prevent parallel attacks from overlapping.
+var (
+	lockedKeys      = make(map[string]struct{})
+	lockedKeysMutex sync.Mutex
+)
+
+// lockKeys attempts to lock all keys for an attack. Returns an error if any key is already locked.
+func lockKeys(keys []string) error {
+	lockedKeysMutex.Lock()
+	defer lockedKeysMutex.Unlock()
+
+	// Check for conflicts first
+	for _, k := range keys {
+		if _, exists := lockedKeys[k]; exists {
+			return fmt.Errorf("key %q is already targeted by another running cache expiration attack. Use non-overlapping patterns to run attacks in parallel", k)
+		}
+	}
+
+	// No conflicts — lock all
+	for _, k := range keys {
+		lockedKeys[k] = struct{}{}
+	}
+	return nil
+}
+
+// unlockKeys releases keys locked by a previous attack instance.
+func unlockKeys(keys []string) {
+	lockedKeysMutex.Lock()
+	defer lockedKeysMutex.Unlock()
+	for _, k := range keys {
+		delete(lockedKeys, k)
+	}
 }
 
 var _ action_kit_sdk.Action[CacheExpirationState] = (*cacheExpirationAttack)(nil)
@@ -154,6 +193,20 @@ func (a *cacheExpirationAttack) Prepare(ctx context.Context, state *CacheExpirat
 	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
 	state.SkippedNonString = 0
 
+	// Detect cluster mode and set backup size limit
+	endpoint := config.GetEndpointByURL(state.RedisURL)
+	if endpoint != nil {
+		isCluster, err := clients.DetectClusterMode(ctx, endpoint)
+		if err != nil {
+			log.Warn().Err(err).Msg("Failed to detect cluster mode, assuming standalone")
+		} else {
+			state.ClusterMode = isCluster
+		}
+		state.MaxBackupBytes = endpoint.GetMaxBackupSizeBytes()
+	} else {
+		state.MaxBackupBytes = config.DefaultMaxBackupSizeBytes
+	}
+
 	return nil, nil
 }
 
@@ -168,22 +221,30 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
-	// Find keys matching pattern using SCAN (non-blocking)
+	// Find keys matching pattern using SCAN (cluster-aware: scans all master nodes)
 	var candidateKeys []string
-	var cursor uint64 = 0
-
-	for {
-		var keys []string
+	endpoint := config.GetEndpointByURL(state.RedisURL)
+	if state.ClusterMode && endpoint != nil {
 		var err error
-		keys, cursor, err = client.Scan(ctx, cursor, state.Pattern, 100).Result()
+		candidateKeys, err = clients.ScanAllKeys(ctx, endpoint, state.Pattern, 0)
 		if err != nil {
-			return nil, fmt.Errorf("failed to scan keys: %w", err)
+			return nil, fmt.Errorf("failed to scan keys across cluster: %w", err)
 		}
+	} else {
+		var cursor uint64 = 0
+		for {
+			var keys []string
+			var err error
+			keys, cursor, err = client.Scan(ctx, cursor, state.Pattern, 100).Result()
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan keys: %w", err)
+			}
 
-		candidateKeys = append(candidateKeys, keys...)
+			candidateKeys = append(candidateKeys, keys...)
 
-		if cursor == 0 {
-			break
+			if cursor == 0 {
+				break
+			}
 		}
 	}
 
@@ -236,31 +297,36 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 		}, nil
 	}
 
-	// Backup values and TTLs if restore is enabled, then set new TTL
-	expireCount := 0
-	ttlDuration := time.Duration(state.TTLSeconds) * time.Second
-
-	for _, key := range stringKeys {
-		// Backup value and TTL if restore is enabled
-		if state.RestoreOnStop {
-			// Get current value
+	// Phase 1: Backup all values and TTLs BEFORE modifying any keys.
+	// This ensures we either back up everything successfully or abort without side effects.
+	if state.RestoreOnStop {
+		for _, key := range stringKeys {
 			value, err := client.Get(ctx, key).Result()
 			if err != nil {
 				log.Warn().Err(err).Str("key", key).Msg("Failed to get key value for backup")
 				continue
 			}
 
-			// Get current TTL (-1 = no expiry, -2 = key doesn't exist)
+			// Check backup size limit — abort before any key is modified
+			valueSize := int64(len(value))
+			if state.MaxBackupBytes > 0 && state.TotalBackupBytes+valueSize > state.MaxBackupBytes {
+				return nil, fmt.Errorf(
+					"backup size would exceed limit: %d matching keys require more than %d MB of backup storage (already accumulated %d bytes, next key is %d bytes). "+
+						"No keys were modified. Reduce the number of affected keys using the 'maxKeys' parameter or a more specific pattern, "+
+						"or increase 'maxBackupSizeBytes' in the endpoint configuration",
+					len(stringKeys), state.MaxBackupBytes/1024/1024, state.TotalBackupBytes, valueSize)
+			}
+			state.TotalBackupBytes += valueSize
+
 			ttl, err := client.TTL(ctx, key).Result()
 			var ttlSeconds int64 = -1
 			if err == nil {
 				if ttl < 0 {
-					// ttl == -1ns means persistent (no expiry), -2ns means key doesn't exist
 					ttlSeconds = -1
 				} else {
 					ttlSeconds = int64(ttl.Seconds())
 					if ttlSeconds == 0 && ttl > 0 {
-						ttlSeconds = 1 // Ensure sub-second TTLs round up to at least 1
+						ttlSeconds = 1
 					}
 				}
 			}
@@ -270,8 +336,18 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 				TTLSeconds: ttlSeconds,
 			}
 		}
+	}
 
-		// Set new short TTL
+	// Lock keys to prevent overlapping parallel attacks
+	if err := lockKeys(stringKeys); err != nil {
+		return nil, err
+	}
+
+	// Phase 2: Apply TTLs — only reached if backup succeeded or restore is disabled.
+	expireCount := 0
+	ttlDuration := time.Duration(state.TTLSeconds) * time.Second
+
+	for _, key := range stringKeys {
 		err := client.Expire(ctx, key, ttlDuration).Err()
 		if err != nil {
 			log.Warn().Err(err).Str("key", key).Msg("Failed to set TTL on key")
@@ -329,6 +405,9 @@ func (a *cacheExpirationAttack) Status(ctx context.Context, state *CacheExpirati
 }
 
 func (a *cacheExpirationAttack) Stop(ctx context.Context, state *CacheExpirationState) (*action_kit_api.StopResult, error) {
+	// Always release locked keys
+	defer unlockKeys(state.AffectedKeys)
+
 	if !state.RestoreOnStop || len(state.BackupData) == 0 {
 		return &action_kit_api.StopResult{
 			Messages: extutil.Ptr([]action_kit_api.Message{

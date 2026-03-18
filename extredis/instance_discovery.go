@@ -8,8 +8,10 @@ import (
 	"context"
 	"fmt"
 	"net/url"
+	"strings"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_api"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_sdk"
@@ -98,6 +100,10 @@ func (d *redisInstanceDiscovery) DescribeAttributes() []discovery_kit_api.Attrib
 			Attribute: AttrRedisName,
 			Label:     discovery_kit_api.PluralLabel{One: "Instance name", Other: "Instance names"},
 		},
+		{
+			Attribute: AttrRedisClusterNodeID,
+			Label:     discovery_kit_api.PluralLabel{One: "Cluster node ID", Other: "Cluster node IDs"},
+		},
 	}
 }
 
@@ -108,7 +114,6 @@ func (d *redisInstanceDiscovery) DiscoverTargets(ctx context.Context) ([]discove
 }
 
 func discoverInstance(ctx context.Context, endpoint *config.RedisEndpoint) ([]discovery_kit_api.Target, error) {
-	// Parse URL first to fail fast on invalid URLs
 	parsedURL, err := url.Parse(endpoint.URL)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Redis URL: %w", err)
@@ -126,22 +131,73 @@ func discoverInstance(ctx context.Context, endpoint *config.RedisEndpoint) ([]di
 	}
 	defer client.Close()
 
-	// Ping to verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
-	// Get all info in a single call
 	allInfo, err := clients.GetRedisInfo(ctx, client, "")
 	if err != nil {
 		log.Warn().Err(err).Msg("Failed to get Redis info")
 		allInfo = make(map[string]string)
 	}
 
-	// Build target name
+	// Cluster mode: discover ALL cluster nodes
+	if clusterEnabled, ok := allInfo["cluster_enabled"]; ok && clusterEnabled == "1" {
+		return discoverClusterNodes(ctx, endpoint, client)
+	}
+
+	// Standalone: return the single configured instance
+	return []discovery_kit_api.Target{buildInstanceTarget(endpoint, host, port, allInfo, "")}, nil
+}
+
+func discoverClusterNodes(ctx context.Context, endpoint *config.RedisEndpoint, seedClient *redis.Client) ([]discovery_kit_api.Target, error) {
+	nodes, err := clients.ParseClusterNodes(ctx, seedClient)
+	if err != nil {
+		log.Warn().Err(err).Msg("Failed to get cluster nodes, falling back to single instance")
+		return nil, fmt.Errorf("failed to get cluster nodes: %w", err)
+	}
+
+	var targets []discovery_kit_api.Target
+	for _, node := range nodes {
+		nodeClient, err := clients.CreateDirectClient(endpoint, node.Addr)
+		if err != nil {
+			log.Warn().Err(err).Str("addr", node.Addr).Msg("Failed to create client for cluster node")
+			continue
+		}
+
+		nodeInfo, err := clients.GetRedisInfo(ctx, nodeClient, "")
+		nodeClient.Close()
+		if err != nil {
+			log.Warn().Err(err).Str("addr", node.Addr).Msg("Failed to get info for cluster node")
+			nodeInfo = make(map[string]string)
+		}
+
+		// Parse host:port from the node address
+		nodeHost, nodePort := parseHostPort(node.Addr)
+
+		target := buildInstanceTarget(endpoint, nodeHost, nodePort, nodeInfo, node.ID)
+		// Override the URL to point to this specific node
+		scheme := "redis"
+		if endpoint.InsecureSkipVerify || len(endpoint.URL) > 8 && endpoint.URL[:8] == "rediss://" {
+			scheme = "rediss"
+		}
+		if strings.HasPrefix(endpoint.URL, "rediss://") {
+			scheme = "rediss"
+		}
+		target.Attributes[AttrRedisURL] = []string{fmt.Sprintf("%s://%s:%s", scheme, nodeHost, nodePort)}
+
+		targets = append(targets, target)
+	}
+
+	return targets, nil
+}
+
+func buildInstanceTarget(endpoint *config.RedisEndpoint, host, port string, info map[string]string, clusterNodeID string) discovery_kit_api.Target {
 	name := endpoint.Name
 	if name == "" {
 		name = fmt.Sprintf("%s:%s", host, port)
+	} else if clusterNodeID != "" {
+		name = fmt.Sprintf("%s/%s:%s", endpoint.Name, host, port)
 	}
 
 	attributes := map[string][]string{
@@ -151,29 +207,34 @@ func discoverInstance(ctx context.Context, endpoint *config.RedisEndpoint) ([]di
 		AttrRedisName: {name},
 	}
 
-	// Add info attributes
-	if version, ok := allInfo["redis_version"]; ok {
+	if version, ok := info["redis_version"]; ok {
 		attributes[AttrRedisVersion] = []string{version}
 	}
-
-	if memMax, ok := allInfo["maxmemory"]; ok {
+	if memMax, ok := info["maxmemory"]; ok {
 		attributes[AttrRedisMemoryMax] = []string{memMax}
 	}
-
-	if role, ok := allInfo["role"]; ok {
+	if role, ok := info["role"]; ok {
 		attributes[AttrRedisRole] = []string{role}
 	}
-
-	if clusterEnabled, ok := allInfo["cluster_enabled"]; ok {
+	if clusterEnabled, ok := info["cluster_enabled"]; ok {
 		attributes[AttrRedisClusterMode] = []string{clusterEnabled}
 	}
+	if clusterNodeID != "" {
+		attributes[AttrRedisClusterNodeID] = []string{clusterNodeID}
+	}
 
-	target := discovery_kit_api.Target{
+	return discovery_kit_api.Target{
 		Id:         fmt.Sprintf("%s:%s", host, port),
 		TargetType: TargetTypeInstance,
 		Label:      name,
 		Attributes: attributes,
 	}
+}
 
-	return []discovery_kit_api.Target{target}, nil
+func parseHostPort(addr string) (string, string) {
+	idx := strings.LastIndex(addr, ":")
+	if idx == -1 {
+		return addr, "6379"
+	}
+	return addr[:idx], addr[idx+1:]
 }

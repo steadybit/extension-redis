@@ -9,25 +9,30 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/action-kit/go/action_kit_sdk"
 	"github.com/steadybit/extension-kit/extbuild"
 	"github.com/steadybit/extension-kit/extutil"
 	"github.com/steadybit/extension-redis/clients"
+	"github.com/steadybit/extension-redis/config"
 )
 
 type maxmemoryLimitAttack struct{}
 
 type MaxmemoryLimitState struct {
-	RedisURL          string `json:"redisUrl"`
-	Password          string `json:"password"`
-	DB                int    `json:"db"`
-	OriginalMaxmemory string `json:"originalMaxmemory"`
-	OriginalPolicy    string `json:"originalPolicy"`
-	NewMaxmemory      string `json:"newMaxmemory"`
-	NewPolicy         string `json:"newPolicy"`
-	EndTime           int64  `json:"endTime"`
+	RedisURL          string            `json:"redisUrl"`
+	Password          string            `json:"password"`
+	DB                int               `json:"db"`
+	OriginalMaxmemory string            `json:"originalMaxmemory"`
+	OriginalPolicy    string            `json:"originalPolicy"`
+	NewMaxmemory      string            `json:"newMaxmemory"`
+	NewPolicy         string            `json:"newPolicy"`
+	EndTime           int64             `json:"endTime"`
+	ClusterMode       bool              `json:"clusterMode"`
+	PerNodeOrigMaxmem map[string]string `json:"perNodeOrigMaxmem,omitempty"`
+	PerNodeOrigPolicy map[string]string `json:"perNodeOrigPolicy,omitempty"`
 }
 
 var _ action_kit_sdk.Action[MaxmemoryLimitState] = (*maxmemoryLimitAttack)(nil)
@@ -141,58 +146,81 @@ func (a *maxmemoryLimitAttack) Prepare(ctx context.Context, state *MaxmemoryLimi
 	state.NewMaxmemory = maxmemory
 	state.NewPolicy = evictionPolicy
 	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
+	state.PerNodeOrigMaxmem = make(map[string]string)
+	state.PerNodeOrigPolicy = make(map[string]string)
+
+	endpoint := config.GetEndpointByURL(state.RedisURL)
+	if endpoint != nil {
+		isCluster, err := clients.DetectClusterMode(ctx, endpoint)
+		if err == nil {
+			state.ClusterMode = isCluster
+		}
+	}
 
 	return nil, nil
 }
 
 func (a *maxmemoryLimitAttack) Start(ctx context.Context, state *MaxmemoryLimitState) (*action_kit_api.StartResult, error) {
-	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Redis client: %w", err)
-	}
+	endpoint := config.GetEndpointByURL(state.RedisURL)
 
-	// Verify connection
-	if err := clients.PingRedis(ctx, client); err != nil {
-		return nil, fmt.Errorf("failed to ping Redis: %w", err)
-	}
+	applyToNode := func(ctx context.Context, nodeClient *redis.Client, addr string) error {
+		if err := clients.PingRedis(ctx, nodeClient); err != nil {
+			return fmt.Errorf("failed to ping Redis: %w", err)
+		}
 
-	// Get current configuration to restore later
-	configResult, err := client.ConfigGet(ctx, "maxmemory").Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current maxmemory: %w", err)
-	}
-	if len(configResult) >= 2 {
-		state.OriginalMaxmemory = configResult["maxmemory"]
-	}
-
-	configResult, err = client.ConfigGet(ctx, "maxmemory-policy").Result()
-	if err != nil {
-		return nil, fmt.Errorf("failed to get current maxmemory-policy: %w", err)
-	}
-	if len(configResult) >= 2 {
-		state.OriginalPolicy = configResult["maxmemory-policy"]
-	}
-
-	log.Info().
-		Str("originalMaxmemory", state.OriginalMaxmemory).
-		Str("originalPolicy", state.OriginalPolicy).
-		Str("newMaxmemory", state.NewMaxmemory).
-		Str("newPolicy", state.NewPolicy).
-		Msg("Applying maxmemory limit")
-
-	// Set new maxmemory
-	err = client.ConfigSet(ctx, "maxmemory", state.NewMaxmemory).Err()
-	if err != nil {
-		return nil, fmt.Errorf("failed to set maxmemory: %w", err)
-	}
-
-	// Set new eviction policy if not "keep"
-	if state.NewPolicy != "keep" && state.NewPolicy != "" {
-		err = client.ConfigSet(ctx, "maxmemory-policy", state.NewPolicy).Err()
+		// Save original config per node
+		configResult, err := nodeClient.ConfigGet(ctx, "maxmemory").Result()
 		if err != nil {
-			// Try to restore maxmemory on failure
-			_ = client.ConfigSet(ctx, "maxmemory", state.OriginalMaxmemory).Err()
-			return nil, fmt.Errorf("failed to set maxmemory-policy: %w", err)
+			return fmt.Errorf("failed to get current maxmemory: %w", err)
+		}
+		if len(configResult) >= 2 {
+			state.PerNodeOrigMaxmem[addr] = configResult["maxmemory"]
+			if state.OriginalMaxmemory == "" {
+				state.OriginalMaxmemory = configResult["maxmemory"]
+			}
+		}
+
+		configResult, err = nodeClient.ConfigGet(ctx, "maxmemory-policy").Result()
+		if err != nil {
+			return fmt.Errorf("failed to get current maxmemory-policy: %w", err)
+		}
+		if len(configResult) >= 2 {
+			state.PerNodeOrigPolicy[addr] = configResult["maxmemory-policy"]
+			if state.OriginalPolicy == "" {
+				state.OriginalPolicy = configResult["maxmemory-policy"]
+			}
+		}
+
+		log.Info().Str("addr", addr).
+			Str("originalMaxmemory", state.PerNodeOrigMaxmem[addr]).
+			Str("newMaxmemory", state.NewMaxmemory).
+			Msg("Applying maxmemory limit")
+
+		if err := nodeClient.ConfigSet(ctx, "maxmemory", state.NewMaxmemory).Err(); err != nil {
+			return fmt.Errorf("failed to set maxmemory: %w", err)
+		}
+
+		if state.NewPolicy != "keep" && state.NewPolicy != "" {
+			if err := nodeClient.ConfigSet(ctx, "maxmemory-policy", state.NewPolicy).Err(); err != nil {
+				_ = nodeClient.ConfigSet(ctx, "maxmemory", state.PerNodeOrigMaxmem[addr]).Err()
+				return fmt.Errorf("failed to set maxmemory-policy: %w", err)
+			}
+		}
+
+		return nil
+	}
+
+	if state.ClusterMode && endpoint != nil {
+		if err := clients.ForEachMaster(ctx, endpoint, applyToNode); err != nil {
+			return nil, err
+		}
+	} else {
+		client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create Redis client: %w", err)
+		}
+		if err := applyToNode(ctx, client, client.Options().Addr); err != nil {
+			return nil, err
 		}
 	}
 
@@ -201,14 +229,18 @@ func (a *maxmemoryLimitAttack) Start(ctx context.Context, state *MaxmemoryLimitS
 		policyMsg = state.OriginalPolicy + " (unchanged)"
 	}
 
+	nodeCount := len(state.PerNodeOrigMaxmem)
+	if nodeCount == 0 {
+		nodeCount = 1
+	}
+
 	messages := []action_kit_api.Message{
 		{
 			Level:   extutil.Ptr(action_kit_api.Info),
-			Message: fmt.Sprintf("Set maxmemory to %s (was: %s), policy: %s", state.NewMaxmemory, state.OriginalMaxmemory, policyMsg),
+			Message: fmt.Sprintf("Set maxmemory to %s (was: %s), policy: %s on %d node(s)", state.NewMaxmemory, state.OriginalMaxmemory, policyMsg, nodeCount),
 		},
 	}
 
-	// Warn about eviction policies that permanently delete data
 	activePolicy := state.NewPolicy
 	if activePolicy == "keep" || activePolicy == "" {
 		activePolicy = state.OriginalPolicy
@@ -258,27 +290,41 @@ func (a *maxmemoryLimitAttack) Status(ctx context.Context, state *MaxmemoryLimit
 }
 
 func (a *maxmemoryLimitAttack) Stop(ctx context.Context, state *MaxmemoryLimitState) (*action_kit_api.StopResult, error) {
-	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create Redis client for restore: %w", err)
-	}
-
+	endpoint := config.GetEndpointByURL(state.RedisURL)
 	var restoreErrors []string
 
-	// Restore original maxmemory
-	err = client.ConfigSet(ctx, "maxmemory", state.OriginalMaxmemory).Err()
-	if err != nil {
-		restoreErrors = append(restoreErrors, fmt.Sprintf("maxmemory: %v", err))
-		log.Warn().Err(err).Str("value", state.OriginalMaxmemory).Msg("Failed to restore maxmemory")
+	restoreNode := func(ctx context.Context, nodeClient *redis.Client, addr string) error {
+		origMaxmem := state.OriginalMaxmemory
+		origPolicy := state.OriginalPolicy
+		if v, ok := state.PerNodeOrigMaxmem[addr]; ok {
+			origMaxmem = v
+		}
+		if v, ok := state.PerNodeOrigPolicy[addr]; ok {
+			origPolicy = v
+		}
+
+		if err := nodeClient.ConfigSet(ctx, "maxmemory", origMaxmem).Err(); err != nil {
+			restoreErrors = append(restoreErrors, fmt.Sprintf("maxmemory on %s: %v", addr, err))
+			log.Warn().Err(err).Str("addr", addr).Str("value", origMaxmem).Msg("Failed to restore maxmemory")
+		}
+
+		if state.NewPolicy != "keep" {
+			if err := nodeClient.ConfigSet(ctx, "maxmemory-policy", origPolicy).Err(); err != nil {
+				restoreErrors = append(restoreErrors, fmt.Sprintf("policy on %s: %v", addr, err))
+				log.Warn().Err(err).Str("addr", addr).Str("value", origPolicy).Msg("Failed to restore maxmemory-policy")
+			}
+		}
+		return nil
 	}
 
-	// Restore original policy
-	if state.NewPolicy != "keep" {
-		err = client.ConfigSet(ctx, "maxmemory-policy", state.OriginalPolicy).Err()
+	if state.ClusterMode && endpoint != nil {
+		_ = clients.ForEachMaster(ctx, endpoint, restoreNode)
+	} else {
+		client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 		if err != nil {
-			restoreErrors = append(restoreErrors, fmt.Sprintf("policy: %v", err))
-			log.Warn().Err(err).Str("value", state.OriginalPolicy).Msg("Failed to restore maxmemory-policy")
+			return nil, fmt.Errorf("failed to create Redis client for restore: %w", err)
 		}
+		_ = restoreNode(ctx, client, client.Options().Addr)
 	}
 
 	if len(restoreErrors) > 0 {
