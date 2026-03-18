@@ -119,6 +119,15 @@ func (a *clientPauseAttack) Prepare(ctx context.Context, state *ClientPauseState
 		}
 	}
 
+	// Validate connectivity before Start
+	client, err := clients.GetRedisClient(state.RedisURL, "", state.DB)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Redis client: %w", err)
+	}
+	if err := clients.PingRedis(ctx, client); err != nil {
+		return nil, fmt.Errorf("failed to ping Redis: %w", err)
+	}
+
 	return nil, nil
 }
 

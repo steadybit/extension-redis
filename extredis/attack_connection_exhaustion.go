@@ -166,6 +166,15 @@ func (a *connectionExhaustionAttack) Prepare(ctx context.Context, state *Connect
 		}
 	}
 
+	// Validate connectivity before Start
+	client, err := clients.GetRedisClient(state.RedisURL, "", state.DB)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Redis client: %w", err)
+	}
+	if err := clients.PingRedis(ctx, client); err != nil {
+		return nil, fmt.Errorf("failed to ping Redis: %w", err)
+	}
+
 	return nil, nil
 }
 
@@ -366,12 +375,19 @@ func (a *connectionExhaustionAttack) Stop(ctx context.Context, state *Connection
 
 	// Close all connections
 	closedCount := 0
+	failedCount := 0
 	for _, client := range connections {
 		if err := client.Close(); err != nil {
+			failedCount++
 			log.Warn().Err(err).Msg("Error closing connection")
 		} else {
 			closedCount++
 		}
+	}
+
+	if failedCount > 0 {
+		log.Error().Int("closed", closedCount).Int("failed", failedCount).Msg("Failed to close all connections")
+		return nil, fmt.Errorf("cleanup failed: closed %d connections but %d failed to close", closedCount, failedCount)
 	}
 
 	return &action_kit_api.StopResult{

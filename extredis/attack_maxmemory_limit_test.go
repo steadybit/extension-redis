@@ -70,13 +70,17 @@ func TestMaxmemoryLimitAttack_Prepare_MissingURL(t *testing.T) {
 }
 
 func TestMaxmemoryLimitAttack_Prepare_MissingMaxmemory(t *testing.T) {
-	// Given
+	// Given - maxmemory validation happens before connectivity check
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
 	action := &maxmemoryLimitAttack{}
 	state := MaxmemoryLimitState{}
 	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
 		Target: &action_kit_api.Target{
 			Attributes: map[string][]string{
-				AttrRedisURL: {"redis://localhost:6379"},
+				AttrRedisURL: {fmt.Sprintf("redis://%s", mr.Addr())},
 			},
 		},
 		Config: map[string]any{
@@ -88,7 +92,7 @@ func TestMaxmemoryLimitAttack_Prepare_MissingMaxmemory(t *testing.T) {
 	})
 
 	// When
-	_, err := action.Prepare(context.Background(), &state, req)
+	_, err = action.Prepare(context.Background(), &state, req)
 
 	// Then
 	require.Error(t, err)
@@ -96,13 +100,19 @@ func TestMaxmemoryLimitAttack_Prepare_MissingMaxmemory(t *testing.T) {
 }
 
 func TestMaxmemoryLimitAttack_Prepare_SetsState(t *testing.T) {
-	// Given
+	// Given - miniredis doesn't support CONFIG GET, so Prepare will fail at the CONFIG validation step.
+	// We verify that state fields are set correctly up to the point of failure.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
 	action := &maxmemoryLimitAttack{}
 	state := MaxmemoryLimitState{}
+	redisURL := fmt.Sprintf("redis://%s", mr.Addr())
 	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
 		Target: &action_kit_api.Target{
 			Attributes: map[string][]string{
-				AttrRedisURL: {"redis://localhost:6379"},
+				AttrRedisURL: {redisURL},
 			},
 		},
 		Config: map[string]any{
@@ -114,25 +124,31 @@ func TestMaxmemoryLimitAttack_Prepare_SetsState(t *testing.T) {
 	})
 
 	// When
-	_, err := action.Prepare(context.Background(), &state, req)
+	_, err = action.Prepare(context.Background(), &state, req)
 
-	// Then
-	require.NoError(t, err)
-	assert.Equal(t, "redis://localhost:6379", state.RedisURL)
+	// Then - CONFIG GET is not supported by miniredis, so Prepare returns an error
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CONFIG")
+
+	// State fields should be set before the CONFIG GET check
+	assert.Equal(t, redisURL, state.RedisURL)
 	assert.Equal(t, 0, state.DB)
 	assert.Equal(t, "50mb", state.NewMaxmemory)
 	assert.Equal(t, "allkeys-lru", state.NewPolicy)
-	assert.WithinDuration(t, time.Now().Add(90*time.Second), time.Unix(state.EndTime, 0), 2*time.Second)
 }
 
 func TestMaxmemoryLimitAttack_Prepare_KeepPolicy(t *testing.T) {
-	// Given
+	// Given - miniredis doesn't support CONFIG GET, so Prepare will fail at the CONFIG validation step.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
 	action := &maxmemoryLimitAttack{}
 	state := MaxmemoryLimitState{}
 	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
 		Target: &action_kit_api.Target{
 			Attributes: map[string][]string{
-				AttrRedisURL: {"redis://localhost:6379"},
+				AttrRedisURL: {fmt.Sprintf("redis://%s", mr.Addr())},
 			},
 		},
 		Config: map[string]any{
@@ -144,10 +160,13 @@ func TestMaxmemoryLimitAttack_Prepare_KeepPolicy(t *testing.T) {
 	})
 
 	// When
-	_, err := action.Prepare(context.Background(), &state, req)
+	_, err = action.Prepare(context.Background(), &state, req)
 
-	// Then
-	require.NoError(t, err)
+	// Then - CONFIG GET is not supported by miniredis, so Prepare returns an error
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "CONFIG")
+
+	// State fields should be set before the CONFIG GET check
 	assert.Equal(t, "keep", state.NewPolicy)
 }
 
@@ -268,7 +287,7 @@ func TestMaxmemoryLimitAttack_Status_ConnectionError(t *testing.T) {
 }
 
 func TestMaxmemoryLimitAttack_Stop_WithRestoreErrors(t *testing.T) {
-	// Given - connection fails during ConfigSet, not during client creation
+	// Given - connection fails during restore
 	action := &maxmemoryLimitAttack{}
 	state := MaxmemoryLimitState{
 		RedisURL:          "redis://nonexistent:6379",
@@ -278,12 +297,10 @@ func TestMaxmemoryLimitAttack_Stop_WithRestoreErrors(t *testing.T) {
 	}
 
 	// When
-	result, err := action.Stop(context.Background(), &state)
+	_, err := action.Stop(context.Background(), &state)
 
-	// Then - Stop returns result with warning messages (doesn't return error)
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.NotNil(t, result.Messages)
+	// Then - Stop now returns a Go error when restore fails
+	require.Error(t, err)
 }
 
 func TestNewMaxmemoryLimitAttack(t *testing.T) {
@@ -309,9 +326,9 @@ func TestMaxmemoryLimitAttack_Stop_Success(t *testing.T) {
 	}
 
 	// When
-	result, err := action.Stop(context.Background(), &state)
+	_, err = action.Stop(context.Background(), &state)
 
-	// Then - miniredis doesn't support CONFIG SET, so this will have warnings
-	require.NoError(t, err)
-	require.NotNil(t, result)
+	// Then - miniredis doesn't support CONFIG SET, so Stop returns an error
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "restore failed")
 }

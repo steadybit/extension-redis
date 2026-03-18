@@ -69,12 +69,17 @@ func TestClientPauseAttack_Prepare_MissingURL(t *testing.T) {
 
 func TestClientPauseAttack_Prepare_SetsState(t *testing.T) {
 	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
 	action := &clientPauseAttack{}
 	state := ClientPauseState{}
+	redisURL := fmt.Sprintf("redis://%s", mr.Addr())
 	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
 		Target: &action_kit_api.Target{
 			Attributes: map[string][]string{
-				AttrRedisURL: {"redis://localhost:6379"},
+				AttrRedisURL: {redisURL},
 			},
 		},
 		Config: map[string]any{
@@ -85,11 +90,11 @@ func TestClientPauseAttack_Prepare_SetsState(t *testing.T) {
 	})
 
 	// When
-	_, err := action.Prepare(context.Background(), &state, req)
+	_, err = action.Prepare(context.Background(), &state, req)
 
 	// Then
 	require.NoError(t, err)
-	assert.Equal(t, "redis://localhost:6379", state.RedisURL)
+	assert.Equal(t, redisURL, state.RedisURL)
 	assert.Equal(t, 0, state.DB)
 	assert.Equal(t, "WRITE", state.PauseMode)
 	assert.WithinDuration(t, time.Now().Add(45*time.Second), time.Unix(state.EndTime, 0), 2*time.Second)
@@ -97,12 +102,16 @@ func TestClientPauseAttack_Prepare_SetsState(t *testing.T) {
 
 func TestClientPauseAttack_Prepare_DefaultPauseMode(t *testing.T) {
 	// Given - invalid pause mode
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
 	action := &clientPauseAttack{}
 	state := ClientPauseState{}
 	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
 		Target: &action_kit_api.Target{
 			Attributes: map[string][]string{
-				AttrRedisURL: {"redis://localhost:6379"},
+				AttrRedisURL: {fmt.Sprintf("redis://%s", mr.Addr())},
 			},
 		},
 		Config: map[string]any{
@@ -113,7 +122,7 @@ func TestClientPauseAttack_Prepare_DefaultPauseMode(t *testing.T) {
 	})
 
 	// When
-	_, err := action.Prepare(context.Background(), &state, req)
+	_, err = action.Prepare(context.Background(), &state, req)
 
 	// Then - should default to ALL
 	require.NoError(t, err)
@@ -122,12 +131,16 @@ func TestClientPauseAttack_Prepare_DefaultPauseMode(t *testing.T) {
 
 func TestClientPauseAttack_Prepare_AllMode(t *testing.T) {
 	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
 	action := &clientPauseAttack{}
 	state := ClientPauseState{}
 	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
 		Target: &action_kit_api.Target{
 			Attributes: map[string][]string{
-				AttrRedisURL: {"redis://localhost:6379"},
+				AttrRedisURL: {fmt.Sprintf("redis://%s", mr.Addr())},
 			},
 		},
 		Config: map[string]any{
@@ -138,7 +151,7 @@ func TestClientPauseAttack_Prepare_AllMode(t *testing.T) {
 	})
 
 	// When
-	_, err := action.Prepare(context.Background(), &state, req)
+	_, err = action.Prepare(context.Background(), &state, req)
 
 	// Then
 	require.NoError(t, err)

@@ -83,6 +83,15 @@ func (a *sentinelStopAttack) Prepare(ctx context.Context, state *SentinelStopSta
 	state.DB = 0
 	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
 
+	// Validate connectivity before Start
+	client, err := clients.GetRedisClient(state.RedisURL, "", state.DB)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Redis client: %w", err)
+	}
+	if err := clients.PingRedis(ctx, client); err != nil {
+		return nil, fmt.Errorf("failed to ping Redis: %w", err)
+	}
+
 	return nil, nil
 }
 

@@ -11,8 +11,6 @@ import (
 	"time"
 
 	"github.com/alicebob/miniredis/v2"
-	"github.com/steadybit/action-kit/go/action_kit_api/v2"
-	"github.com/steadybit/extension-kit/extutil"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -260,8 +258,7 @@ func TestConnectionExhaustionAttack_Stop_CalledTwice(t *testing.T) {
 // ============================================================
 
 func TestMaxmemoryLimitAttack_Stop_RestoresOriginalSettings(t *testing.T) {
-	// NOTE: miniredis doesn't support CONFIG GET/SET, so we can't test full Start+Stop.
-	// Instead we test Stop with pre-populated state to verify the restore logic runs.
+	// NOTE: miniredis doesn't support CONFIG GET/SET, so Stop will return an error.
 	mr, err := miniredis.Run()
 	require.NoError(t, err)
 	defer mr.Close()
@@ -277,16 +274,10 @@ func TestMaxmemoryLimitAttack_Stop_RestoresOriginalSettings(t *testing.T) {
 		EndTime:           time.Now().Add(30 * time.Second).Unix(),
 	}
 
-	// Stop — attempts restore (will get CONFIG errors from miniredis but shouldn't crash)
-	stopResult, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, stopResult)
-
-	// Since miniredis doesn't support CONFIG SET, the result should contain warning messages
-	msgs := *stopResult.Messages
-	require.NotEmpty(t, msgs)
-	// The restore fails gracefully with warnings (not errors)
-	assert.Equal(t, extutil.Ptr(action_kit_api.Warn), msgs[0].Level)
+	// Stop — attempts restore, fails because miniredis doesn't support CONFIG SET
+	_, err = action.Stop(context.Background(), &state)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "restore failed")
 }
 
 func TestMaxmemoryLimitAttack_Stop_CalledWithoutStart(t *testing.T) {
@@ -305,15 +296,15 @@ func TestMaxmemoryLimitAttack_Stop_CalledWithoutStart(t *testing.T) {
 		EndTime:           time.Now().Add(30 * time.Second).Unix(),
 	}
 
-	// Stop without Start — should attempt restore with the zero-value originals
-	result, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, result)
+	// Stop without Start — miniredis doesn't support CONFIG SET, so this returns an error
+	_, err = action.Stop(context.Background(), &state)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "restore failed")
 }
 
 func TestMaxmemoryLimitAttack_Stop_KeepPolicyNotRestored(t *testing.T) {
 	// When policy is "keep", Stop should NOT try to restore the policy.
-	// We verify by checking that only maxmemory error appears (not policy error).
+	// We verify by checking that the error only mentions maxmemory (not policy).
 	mr, err := miniredis.Run()
 	require.NoError(t, err)
 	defer mr.Close()
@@ -330,15 +321,12 @@ func TestMaxmemoryLimitAttack_Stop_KeepPolicyNotRestored(t *testing.T) {
 	}
 
 	// Stop — should only attempt maxmemory restore, not policy
-	stopResult, err := action.Stop(context.Background(), &state)
-	require.NoError(t, err)
-	require.NotNil(t, stopResult)
+	_, err = action.Stop(context.Background(), &state)
+	require.Error(t, err)
 
-	// The warning should mention maxmemory but NOT policy (since NewPolicy is "keep")
-	msgs := *stopResult.Messages
-	require.NotEmpty(t, msgs)
-	assert.Contains(t, msgs[0].Message, "maxmemory")
-	assert.NotContains(t, msgs[0].Message, "policy:")
+	// The error should mention maxmemory but NOT policy (since NewPolicy is "keep")
+	assert.Contains(t, err.Error(), "maxmemory")
+	assert.NotContains(t, err.Error(), "policy")
 }
 
 // ============================================================

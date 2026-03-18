@@ -157,6 +157,19 @@ func (a *maxmemoryLimitAttack) Prepare(ctx context.Context, state *MaxmemoryLimi
 		}
 	}
 
+	// Validate connectivity and CONFIG access before Start
+	client, err := clients.GetRedisClient(state.RedisURL, "", state.DB)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Redis client: %w", err)
+	}
+	if err := clients.PingRedis(ctx, client); err != nil {
+		return nil, fmt.Errorf("failed to ping Redis: %w", err)
+	}
+	_, err = client.ConfigGet(ctx, "maxmemory").Result()
+	if err != nil {
+		return nil, fmt.Errorf("CONFIG GET is not available on this Redis instance (may be disabled or require admin privileges): %w", err)
+	}
+
 	return nil, nil
 }
 
@@ -328,14 +341,8 @@ func (a *maxmemoryLimitAttack) Stop(ctx context.Context, state *MaxmemoryLimitSt
 	}
 
 	if len(restoreErrors) > 0 {
-		return &action_kit_api.StopResult{
-			Messages: extutil.Ptr([]action_kit_api.Message{
-				{
-					Level:   extutil.Ptr(action_kit_api.Warn),
-					Message: fmt.Sprintf("Restore completed with errors: %v", restoreErrors),
-				},
-			}),
-		}, nil
+		log.Error().Strs("errors", restoreErrors).Msg("Failed to restore maxmemory settings")
+		return nil, fmt.Errorf("restore failed: %v", restoreErrors)
 	}
 
 	return &action_kit_api.StopResult{

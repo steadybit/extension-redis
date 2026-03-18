@@ -79,12 +79,17 @@ func TestConnectionExhaustionAttack_Prepare_MissingURL(t *testing.T) {
 
 func TestConnectionExhaustionAttack_Prepare_SetsState(t *testing.T) {
 	// Given
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
 	action := &connectionExhaustionAttack{}
 	state := ConnectionExhaustionState{}
+	redisURL := fmt.Sprintf("redis://%s", mr.Addr())
 	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
 		Target: &action_kit_api.Target{
 			Attributes: map[string][]string{
-				AttrRedisURL: {"redis://localhost:6379"},
+				AttrRedisURL: {redisURL},
 			},
 		},
 		Config: map[string]any{
@@ -95,11 +100,11 @@ func TestConnectionExhaustionAttack_Prepare_SetsState(t *testing.T) {
 	})
 
 	// When
-	_, err := action.Prepare(context.Background(), &state, req)
+	_, err = action.Prepare(context.Background(), &state, req)
 
 	// Then
 	require.NoError(t, err)
-	assert.Equal(t, "redis://localhost:6379", state.RedisURL)
+	assert.Equal(t, redisURL, state.RedisURL)
 	assert.Equal(t, 50, state.NumConnections)
 	assert.Greater(t, state.EndTime, int64(0))
 	assert.Equal(t, 0, state.ConnectionCount)
