@@ -28,21 +28,26 @@ func TestCacheExpirationAttack_Stop_RestoresKeysAfterExpiry(t *testing.T) {
 	defer mr.Close()
 
 	// Create keys with no TTL
+	matchedKeys := make([]string, 20)
 	for i := 0; i < 20; i++ {
-		mr.Set(fmt.Sprintf("exp-restore:key:%d", i), fmt.Sprintf("value-%d", i))
+		key := fmt.Sprintf("exp-restore:key:%d", i)
+		mr.Set(key, fmt.Sprintf("value-%d", i))
+		matchedKeys[i] = key
 	}
 
 	action := &cacheExpirationAttack{}
 	state := CacheExpirationState{
-		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:            0,
-		Pattern:       "exp-restore:key:*",
-		TTLSeconds:    1,
-		MaxKeys:       0,
-		AffectedKeys:  []string{},
-		BackupData:    make(map[string]KeyBackup),
-		RestoreOnStop: true,
-		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+		RedisURL:       fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:             0,
+		Pattern:        "exp-restore:key:*",
+		TTLSeconds:     1,
+		MaxKeys:        0,
+		AffectedKeys:   []string{},
+		MatchedKeys:    matchedKeys,
+		BackupData:     make(map[string]KeyBackup),
+		RestoreOnStop:  true,
+		EndTime:        time.Now().Add(60 * time.Second).Unix(),
+		MaxBackupBytes: 100 * 1024 * 1024,
 	}
 
 	// Start — set short TTL
@@ -85,15 +90,17 @@ func TestCacheExpirationAttack_Stop_RestoresOriginalTTL(t *testing.T) {
 
 	action := &cacheExpirationAttack{}
 	state := CacheExpirationState{
-		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:            0,
-		Pattern:       "ttl-restore:*",
-		TTLSeconds:    300,
-		MaxKeys:       0,
-		AffectedKeys:  []string{},
-		BackupData:    make(map[string]KeyBackup),
-		RestoreOnStop: true,
-		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+		RedisURL:       fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:             0,
+		Pattern:        "ttl-restore:*",
+		TTLSeconds:     300,
+		MaxKeys:        0,
+		AffectedKeys:   []string{},
+		MatchedKeys:    []string{"ttl-restore:key1", "ttl-restore:key2"},
+		BackupData:     make(map[string]KeyBackup),
+		RestoreOnStop:  true,
+		EndTime:        time.Now().Add(60 * time.Second).Unix(),
+		MaxBackupBytes: 100 * 1024 * 1024,
 	}
 
 	// Start — backs up original TTLs
@@ -130,15 +137,18 @@ func TestCacheExpirationAttack_Stop_PartialBackup_MixedKeyTypes(t *testing.T) {
 
 	action := &cacheExpirationAttack{}
 	state := CacheExpirationState{
-		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:            0,
-		Pattern:       "mixed-exp:*",
-		TTLSeconds:    1,
-		MaxKeys:       0,
-		AffectedKeys:  []string{},
-		BackupData:    make(map[string]KeyBackup),
-		RestoreOnStop: true,
-		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+		RedisURL:         fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:               0,
+		Pattern:          "mixed-exp:*",
+		TTLSeconds:       1,
+		MaxKeys:          0,
+		AffectedKeys:     []string{},
+		MatchedKeys:      []string{"mixed-exp:str1", "mixed-exp:str2"}, // Only string keys from Prepare
+		BackupData:       make(map[string]KeyBackup),
+		RestoreOnStop:    true,
+		EndTime:          time.Now().Add(60 * time.Second).Unix(),
+		SkippedNonString: 1, // Set by Prepare
+		MaxBackupBytes:   100 * 1024 * 1024,
 	}
 
 	_, err = action.Start(context.Background(), &state)
@@ -344,15 +354,17 @@ func TestCacheExpirationAttack_Stop_CalledTwice(t *testing.T) {
 
 	action := &cacheExpirationAttack{}
 	state := CacheExpirationState{
-		RedisURL:      fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:            0,
-		Pattern:       "double-exp:*",
-		TTLSeconds:    1,
-		MaxKeys:       0,
-		AffectedKeys:  []string{},
-		BackupData:    make(map[string]KeyBackup),
-		RestoreOnStop: true,
-		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+		RedisURL:       fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:             0,
+		Pattern:        "double-exp:*",
+		TTLSeconds:     1,
+		MaxKeys:        0,
+		AffectedKeys:   []string{},
+		MatchedKeys:    []string{"double-exp:key1"},
+		BackupData:     make(map[string]KeyBackup),
+		RestoreOnStop:  true,
+		EndTime:        time.Now().Add(60 * time.Second).Unix(),
+		MaxBackupBytes: 100 * 1024 * 1024,
 	}
 
 	_, err = action.Start(context.Background(), &state)

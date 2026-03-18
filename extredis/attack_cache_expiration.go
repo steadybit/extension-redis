@@ -35,6 +35,7 @@ type CacheExpirationState struct {
 	MaxKeys          int                  `json:"maxKeys"`
 	TTLSeconds       int                  `json:"ttlSeconds"`
 	AffectedKeys     []string             `json:"affectedKeys"`
+	MatchedKeys      []string             `json:"matchedKeys"`
 	BackupData       map[string]KeyBackup `json:"backupData"`
 	RestoreOnStop    bool                 `json:"restoreOnStop"`
 	EndTime          int64                `json:"endTime"`
@@ -207,6 +208,72 @@ func (a *cacheExpirationAttack) Prepare(ctx context.Context, state *CacheExpirat
 		state.MaxBackupBytes = config.DefaultMaxBackupSizeBytes
 	}
 
+	// Validate that pattern matches keys — fail fast in Prepare
+	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create Redis client: %w", err)
+	}
+	if err := clients.PingRedis(ctx, client); err != nil {
+		return nil, fmt.Errorf("failed to ping Redis: %w", err)
+	}
+
+	var candidateKeys []string
+	if state.ClusterMode && endpoint != nil {
+		candidateKeys, err = clients.ScanAllKeys(ctx, endpoint, state.Pattern, 0)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan keys across cluster: %w", err)
+		}
+	} else {
+		var cursor uint64
+		for {
+			var keys []string
+			keys, cursor, err = client.Scan(ctx, cursor, state.Pattern, 100).Result()
+			if err != nil {
+				return nil, fmt.Errorf("failed to scan keys: %w", err)
+			}
+			candidateKeys = append(candidateKeys, keys...)
+			if cursor == 0 {
+				break
+			}
+		}
+	}
+
+	if len(candidateKeys) == 0 {
+		return nil, fmt.Errorf("no keys found matching pattern '%s'", state.Pattern)
+	}
+
+	// Filter to string keys only and apply max limit
+	var stringKeys []string
+	skippedNonString := 0
+	for _, key := range candidateKeys {
+		keyType, err := client.Type(ctx, key).Result()
+		if err != nil {
+			log.Warn().Err(err).Str("key", key).Msg("Failed to get key type")
+			continue
+		}
+		if keyType != "string" {
+			skippedNonString++
+			continue
+		}
+		stringKeys = append(stringKeys, key)
+		if state.MaxKeys > 0 && len(stringKeys) >= state.MaxKeys {
+			break
+		}
+	}
+
+	if len(stringKeys) == 0 {
+		return nil, fmt.Errorf("no string keys found matching pattern '%s' (found %d keys but %d were non-string types)", state.Pattern, len(candidateKeys), skippedNonString)
+	}
+
+	state.MatchedKeys = stringKeys
+	state.SkippedNonString = skippedNonString
+
+	log.Info().
+		Int("matchedKeys", len(stringKeys)).
+		Int("skippedNonString", skippedNonString).
+		Str("pattern", state.Pattern).
+		Msg("Prepare: pattern validated, keys matched")
+
 	return nil, nil
 }
 
@@ -216,86 +283,12 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 		return nil, fmt.Errorf("failed to create Redis client: %w", err)
 	}
 
-	// Verify connection
 	if err := clients.PingRedis(ctx, client); err != nil {
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
-	// Find keys matching pattern using SCAN (cluster-aware: scans all master nodes)
-	var candidateKeys []string
-	endpoint := config.GetEndpointByURL(state.RedisURL)
-	if state.ClusterMode && endpoint != nil {
-		var err error
-		candidateKeys, err = clients.ScanAllKeys(ctx, endpoint, state.Pattern, 0)
-		if err != nil {
-			return nil, fmt.Errorf("failed to scan keys across cluster: %w", err)
-		}
-	} else {
-		var cursor uint64 = 0
-		for {
-			var keys []string
-			var err error
-			keys, cursor, err = client.Scan(ctx, cursor, state.Pattern, 100).Result()
-			if err != nil {
-				return nil, fmt.Errorf("failed to scan keys: %w", err)
-			}
-
-			candidateKeys = append(candidateKeys, keys...)
-
-			if cursor == 0 {
-				break
-			}
-		}
-	}
-
-	if len(candidateKeys) == 0 {
-		return &action_kit_api.StartResult{
-			Messages: extutil.Ptr([]action_kit_api.Message{
-				{
-					Level:   extutil.Ptr(action_kit_api.Warn),
-					Message: fmt.Sprintf("No keys found matching pattern '%s'", state.Pattern),
-				},
-			}),
-		}, nil
-	}
-
-	// Filter to string keys only and apply max limit
-	var stringKeys []string
-	skippedNonString := 0
-
-	for _, key := range candidateKeys {
-		// Check key type
-		keyType, err := client.Type(ctx, key).Result()
-		if err != nil {
-			log.Warn().Err(err).Str("key", key).Msg("Failed to get key type")
-			continue
-		}
-
-		if keyType != "string" {
-			skippedNonString++
-			continue
-		}
-
-		stringKeys = append(stringKeys, key)
-
-		// Check max keys limit
-		if state.MaxKeys > 0 && len(stringKeys) >= state.MaxKeys {
-			break
-		}
-	}
-
-	state.SkippedNonString = skippedNonString
-
-	if len(stringKeys) == 0 {
-		return &action_kit_api.StartResult{
-			Messages: extutil.Ptr([]action_kit_api.Message{
-				{
-					Level:   extutil.Ptr(action_kit_api.Warn),
-					Message: fmt.Sprintf("No string keys found matching pattern '%s' (skipped %d non-string keys)", state.Pattern, skippedNonString),
-				},
-			}),
-		}, nil
-	}
+	// Keys were already scanned and validated in Prepare
+	stringKeys := state.MatchedKeys
 
 	// Phase 1: Backup all values and TTLs BEFORE modifying any keys.
 	// This ensures we either back up everything successfully or abort without side effects.
@@ -364,8 +357,8 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 	}
 
 	msg := fmt.Sprintf("Set TTL of %d seconds on %d string keys matching pattern '%s'", state.TTLSeconds, expireCount, state.Pattern)
-	if skippedNonString > 0 {
-		msg += fmt.Sprintf(" (skipped %d non-string keys)", skippedNonString)
+	if state.SkippedNonString > 0 {
+		msg += fmt.Sprintf(" (skipped %d non-string keys)", state.SkippedNonString)
 	}
 	if state.RestoreOnStop {
 		msg += ". Keys will be restored on stop."

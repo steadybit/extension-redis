@@ -37,14 +37,16 @@ func TestCacheExpirationAttack_Start_MalformedURL(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			action := &cacheExpirationAttack{}
 			state := CacheExpirationState{
-				RedisURL:     tc.url,
-				DB:           0,
-				Pattern:      "test:*",
-				TTLSeconds:   60,
-				MaxKeys:      100,
-				AffectedKeys: []string{},
-				BackupData:   make(map[string]KeyBackup),
-				EndTime:      time.Now().Add(60 * time.Second).Unix(),
+				RedisURL:       tc.url,
+				DB:             0,
+				Pattern:        "test:*",
+				TTLSeconds:     60,
+				MaxKeys:        100,
+				AffectedKeys:   []string{},
+				MatchedKeys:    []string{"test:key1"},
+				BackupData:     make(map[string]KeyBackup),
+				EndTime:        time.Now().Add(60 * time.Second).Unix(),
+				MaxBackupBytes: 100 * 1024 * 1024,
 			}
 
 			_, err := action.Start(context.Background(), &state)
@@ -108,15 +110,17 @@ func TestCacheExpirationAttack_Start_WrongPassword(t *testing.T) {
 
 	action := &cacheExpirationAttack{}
 	state := CacheExpirationState{
-		RedisURL:     fmt.Sprintf("redis://%s", mr.Addr()),
-		Password:     "wrong-password",
-		DB:           0,
-		Pattern:      "test:*",
-		TTLSeconds:   60,
-		MaxKeys:      100,
-		AffectedKeys: []string{},
-		BackupData:   make(map[string]KeyBackup),
-		EndTime:      time.Now().Add(60 * time.Second).Unix(),
+		RedisURL:       fmt.Sprintf("redis://%s", mr.Addr()),
+		Password:       "wrong-password",
+		DB:             0,
+		Pattern:        "test:*",
+		TTLSeconds:     60,
+		MaxKeys:        100,
+		AffectedKeys:   []string{},
+		MatchedKeys:    []string{"test:key1"},
+		BackupData:     make(map[string]KeyBackup),
+		EndTime:        time.Now().Add(60 * time.Second).Unix(),
+		MaxBackupBytes: 100 * 1024 * 1024,
 	}
 
 	_, err = action.Start(context.Background(), &state)
@@ -419,14 +423,15 @@ func TestCacheExpirationAttack_Stop_ConnectionLost(t *testing.T) {
 
 	action := &cacheExpirationAttack{}
 	state := CacheExpirationState{
-		RedisURL:      fmt.Sprintf("redis://%s", addr),
-		DB:            0,
-		Pattern:       "test:*",
-		TTLSeconds:    60,
-		RestoreOnStop: true,
-		AffectedKeys:  []string{"test:key1"},
-		BackupData:    map[string]KeyBackup{"test:key1": {Value: "value1", TTLSeconds: -1}},
-		EndTime:       time.Now().Add(60 * time.Second).Unix(),
+		RedisURL:       fmt.Sprintf("redis://%s", addr),
+		DB:             0,
+		Pattern:        "test:*",
+		TTLSeconds:     60,
+		RestoreOnStop:  true,
+		AffectedKeys:   []string{"test:key1"},
+		BackupData:     map[string]KeyBackup{"test:key1": {Value: "value1", TTLSeconds: -1}},
+		EndTime:        time.Now().Add(60 * time.Second).Unix(),
+		MaxBackupBytes: 100 * 1024 * 1024,
 	}
 
 	// Close Redis before stop
@@ -444,12 +449,19 @@ func TestCacheExpirationAttack_Stop_ConnectionLost(t *testing.T) {
 // ============================================================
 
 func TestCacheExpirationAttack_Prepare_NegativeTTL(t *testing.T) {
+	// Given — miniredis with matching keys
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	mr.Set("test:key1", "value1")
+
 	action := &cacheExpirationAttack{}
 	state := CacheExpirationState{}
 	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
 		Target: &action_kit_api.Target{
 			Attributes: map[string][]string{
-				AttrRedisURL:      {"redis://localhost:6379"},
+				AttrRedisURL:      {fmt.Sprintf("redis://%s", mr.Addr())},
 				AttrDatabaseIndex: {"0"},
 			},
 		},
@@ -463,18 +475,25 @@ func TestCacheExpirationAttack_Prepare_NegativeTTL(t *testing.T) {
 		ExecutionId: uuid.New(),
 	})
 
-	_, err := action.Prepare(context.Background(), &state, req)
+	_, err = action.Prepare(context.Background(), &state, req)
 	require.NoError(t, err)
 	assert.Equal(t, 1, state.TTLSeconds, "Negative TTL should default to minimum of 1")
 }
 
 func TestCacheExpirationAttack_Prepare_ZeroTTL(t *testing.T) {
+	// Given — miniredis with matching keys
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	mr.Set("test:key1", "value1")
+
 	action := &cacheExpirationAttack{}
 	state := CacheExpirationState{}
 	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
 		Target: &action_kit_api.Target{
 			Attributes: map[string][]string{
-				AttrRedisURL:      {"redis://localhost:6379"},
+				AttrRedisURL:      {fmt.Sprintf("redis://%s", mr.Addr())},
 				AttrDatabaseIndex: {"0"},
 			},
 		},
@@ -488,7 +507,7 @@ func TestCacheExpirationAttack_Prepare_ZeroTTL(t *testing.T) {
 		ExecutionId: uuid.New(),
 	})
 
-	_, err := action.Prepare(context.Background(), &state, req)
+	_, err = action.Prepare(context.Background(), &state, req)
 	require.NoError(t, err)
 	assert.Equal(t, 1, state.TTLSeconds, "Zero TTL should default to minimum of 1")
 }
@@ -498,12 +517,19 @@ func TestCacheExpirationAttack_Prepare_ZeroTTL(t *testing.T) {
 // ============================================================
 
 func TestCacheExpirationAttack_Prepare_InvalidDatabaseIndex(t *testing.T) {
+	// Given — miniredis with matching keys
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+
+	mr.Set("test:key1", "value1")
+
 	action := &cacheExpirationAttack{}
 	state := CacheExpirationState{}
 	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
 		Target: &action_kit_api.Target{
 			Attributes: map[string][]string{
-				AttrRedisURL:      {"redis://localhost:6379"},
+				AttrRedisURL:      {fmt.Sprintf("redis://%s", mr.Addr())},
 				AttrDatabaseIndex: {"abc"},
 			},
 		},
@@ -517,7 +543,7 @@ func TestCacheExpirationAttack_Prepare_InvalidDatabaseIndex(t *testing.T) {
 		ExecutionId: uuid.New(),
 	})
 
-	_, err := action.Prepare(context.Background(), &state, req)
+	_, err = action.Prepare(context.Background(), &state, req)
 	require.NoError(t, err)
 	assert.Equal(t, 0, state.DB, "Invalid DB index should default to 0")
 }
