@@ -2,7 +2,7 @@ apiVersion: v2
 name: steadybit-extension-redis
 description: Steadybit extension for redis.
 version: 1.0.5
-appVersion: v2.0.0
+appVersion: v1.1.0
 home: https://www.steadybit.com/
 icon: https://steadybit-website-assets.s3.amazonaws.com/logo-symbol-transparent.png
 maintainers:
