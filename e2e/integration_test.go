@@ -215,7 +215,7 @@ func helmInstallRedis(minikube *e2e.Minikube) error {
 		"--namespace", "default",
 		"--create-namespace",
 		"my-redis", "bitnami/redis",
-		"--set", "auth.password=redis-password",
+		"--set", "auth.password=redis-password", //NOSONAR go:S2068
 		"--set", "architecture=standalone",
 		"--set", "master.persistence.enabled=false",
 		"--set", "replica.persistence.enabled=false",
