@@ -47,38 +47,38 @@ func (a *clientPauseAttack) Describe() action_kit_api.ActionDescription {
 		Label:       "Pause Clients",
 		Description: "Suspends all client command processing for a duration using CLIENT PAUSE",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
-		Icon:        extutil.Ptr(redisIcon),
-		TargetSelection: extutil.Ptr(action_kit_api.TargetSelection{
+		Icon:        new(redisIcon),
+		TargetSelection: new(action_kit_api.TargetSelection{
 			TargetType: TargetTypeInstance,
-			SelectionTemplates: extutil.Ptr([]action_kit_api.TargetSelectionTemplate{
+			SelectionTemplates: new([]action_kit_api.TargetSelectionTemplate{
 				{
 					Label:       "by host and port",
-					Description: extutil.Ptr("Find Redis instance by host and port"),
+					Description: new("Find Redis instance by host and port"),
 					Query:       "redis.host=\"\" AND redis.port=\"\"",
 				},
 			}),
 		}),
-		Technology:  extutil.Ptr("Redis"),
-		Category:    extutil.Ptr("network"),
+		Technology:  new("Redis"),
+		Category:    new("network"),
 		Kind:        action_kit_api.Attack,
 		TimeControl: action_kit_api.TimeControlExternal,
 		Parameters: []action_kit_api.ActionParameter{
 			{
 				Name:         "duration",
 				Label:        "Duration",
-				Description:  extutil.Ptr("How long to pause client connections"),
+				Description:  new("How long to pause client connections"),
 				Type:         action_kit_api.ActionParameterTypeDuration,
-				DefaultValue: extutil.Ptr("30s"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("30s"),
+				Required:     new(true),
 			},
 			{
 				Name:         "pauseMode",
 				Label:        "Pause Mode",
-				Description:  extutil.Ptr("WRITE pauses only write commands, ALL pauses all commands"),
+				Description:  new("WRITE pauses only write commands, ALL pauses all commands"),
 				Type:         action_kit_api.ActionParameterTypeString,
-				DefaultValue: extutil.Ptr("ALL"),
-				Required:     extutil.Ptr(true),
-				Options: extutil.Ptr([]action_kit_api.ParameterOption{
+				DefaultValue: new("ALL"),
+				Required:     new(true),
+				Options: new([]action_kit_api.ParameterOption{
 					action_kit_api.ExplicitParameterOption{
 						Label: "All Commands",
 						Value: "ALL",
@@ -142,14 +142,14 @@ func (a *clientPauseAttack) Start(ctx context.Context, state *ClientPauseState) 
 			return fmt.Errorf("failed to ping Redis: %w", err)
 		}
 
-		args := []interface{}{"PAUSE", pauseDurationMs}
+		args := []any{"PAUSE", pauseDurationMs}
 		if state.PauseMode == "WRITE" {
 			args = append(args, "WRITE")
 		} else {
 			args = append(args, "ALL")
 		}
 
-		if err := nodeClient.Do(ctx, append([]interface{}{"CLIENT"}, args...)...).Err(); err != nil {
+		if err := nodeClient.Do(ctx, append([]any{"CLIENT"}, args...)...).Err(); err != nil {
 			return fmt.Errorf("failed to execute CLIENT PAUSE: %w", err)
 		}
 		return nil
@@ -174,7 +174,7 @@ func (a *clientPauseAttack) Start(ctx context.Context, state *ClientPauseState) 
 	}
 
 	return &action_kit_api.StartResult{
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Paused Redis clients (mode: %s) for %d ms on %d node(s)", state.PauseMode, pauseDurationMs, nodeCount),
@@ -187,14 +187,11 @@ func (a *clientPauseAttack) Status(ctx context.Context, state *ClientPauseState)
 	now := time.Now().Unix()
 	completed := now >= state.EndTime
 
-	remainingSeconds := state.EndTime - now
-	if remainingSeconds < 0 {
-		remainingSeconds = 0
-	}
+	remainingSeconds := max(state.EndTime-now, 0)
 
 	return &action_kit_api.StatusResult{
 		Completed: completed,
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Client pause active (mode: %s), %d seconds remaining", state.PauseMode, remainingSeconds),
@@ -224,7 +221,7 @@ func (a *clientPauseAttack) Stop(ctx context.Context, state *ClientPauseState) (
 	}
 
 	return &action_kit_api.StopResult{
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: "Executed CLIENT UNPAUSE, clients resumed",

@@ -202,7 +202,7 @@ func TestScanAllKeys_WithMaxKeys(t *testing.T) {
 	require.NoError(t, err)
 	defer mr.Close()
 
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		mr.Set(fmt.Sprintf("scan:%d", i), "val")
 	}
 

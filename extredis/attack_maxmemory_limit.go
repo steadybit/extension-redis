@@ -53,46 +53,46 @@ func (a *maxmemoryLimitAttack) Describe() action_kit_api.ActionDescription {
 		Label:       "Limit MaxMemory",
 		Description: "Reduces Redis maxmemory to force evictions or OOM errors",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
-		Icon:        extutil.Ptr(redisIcon),
-		TargetSelection: extutil.Ptr(action_kit_api.TargetSelection{
+		Icon:        new(redisIcon),
+		TargetSelection: new(action_kit_api.TargetSelection{
 			TargetType: TargetTypeInstance,
-			SelectionTemplates: extutil.Ptr([]action_kit_api.TargetSelectionTemplate{
+			SelectionTemplates: new([]action_kit_api.TargetSelectionTemplate{
 				{
 					Label:       "by host and port",
-					Description: extutil.Ptr("Find Redis instance by host and port"),
+					Description: new("Find Redis instance by host and port"),
 					Query:       "redis.host=\"\" AND redis.port=\"\"",
 				},
 			}),
 		}),
-		Technology:  extutil.Ptr("Redis"),
-		Category:    extutil.Ptr("resource"),
+		Technology:  new("Redis"),
+		Category:    new("resource"),
 		Kind:        action_kit_api.Attack,
 		TimeControl: action_kit_api.TimeControlExternal,
 		Parameters: []action_kit_api.ActionParameter{
 			{
 				Name:         "duration",
 				Label:        "Duration",
-				Description:  extutil.Ptr("How long to apply the memory limit"),
+				Description:  new("How long to apply the memory limit"),
 				Type:         action_kit_api.ActionParameterTypeDuration,
-				DefaultValue: extutil.Ptr("60s"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("60s"),
+				Required:     new(true),
 			},
 			{
 				Name:         "maxmemory",
 				Label:        "Max Memory",
-				Description:  extutil.Ptr("Maximum memory limit (e.g., '10mb', '1gb', or bytes). Set to '1mb' for aggressive limiting."),
+				Description:  new("Maximum memory limit (e.g., '10mb', '1gb', or bytes). Set to '1mb' for aggressive limiting."),
 				Type:         action_kit_api.ActionParameterTypeString,
-				DefaultValue: extutil.Ptr("10mb"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("10mb"),
+				Required:     new(true),
 			},
 			{
 				Name:         "evictionPolicy",
 				Label:        "Eviction Policy",
-				Description:  extutil.Ptr("Memory eviction policy to apply"),
+				Description:  new("Memory eviction policy to apply"),
 				Type:         action_kit_api.ActionParameterTypeString,
-				DefaultValue: extutil.Ptr("noeviction"),
-				Required:     extutil.Ptr(true),
-				Options: extutil.Ptr([]action_kit_api.ParameterOption{
+				DefaultValue: new("noeviction"),
+				Required:     new(true),
+				Options: new([]action_kit_api.ParameterOption{
 					action_kit_api.ExplicitParameterOption{
 						Label: "No Eviction (return errors on write)",
 						Value: "noeviction",
@@ -272,7 +272,7 @@ func (a *maxmemoryLimitAttack) Start(ctx context.Context, state *MaxmemoryLimitS
 	}
 
 	return &action_kit_api.StartResult{
-		Messages: extutil.Ptr(messages),
+		Messages: new(messages),
 	}, nil
 }
 
@@ -293,7 +293,7 @@ func (a *maxmemoryLimitAttack) Status(ctx context.Context, state *MaxmemoryLimit
 
 	return &action_kit_api.StatusResult{
 		Completed: completed,
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("MaxMemory limit active: %s, current usage: %s", state.NewMaxmemory, memoryInfo),
@@ -346,7 +346,7 @@ func (a *maxmemoryLimitAttack) Stop(ctx context.Context, state *MaxmemoryLimitSt
 	}
 
 	return &action_kit_api.StopResult{
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Restored maxmemory to %s, policy to %s", state.OriginalMaxmemory, state.OriginalPolicy),

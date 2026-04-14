@@ -16,7 +16,6 @@ import (
 	"github.com/steadybit/discovery-kit/go/discovery_kit_api"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_sdk"
 	"github.com/steadybit/extension-kit/extbuild"
-	"github.com/steadybit/extension-kit/extutil"
 	"github.com/steadybit/extension-redis/clients"
 	"github.com/steadybit/extension-redis/config"
 )
@@ -40,7 +39,7 @@ func (d *redisInstanceDiscovery) Describe() discovery_kit_api.DiscoveryDescripti
 	return discovery_kit_api.DiscoveryDescription{
 		Id: TargetTypeInstance,
 		Discover: discovery_kit_api.DescribingEndpointReferenceWithCallInterval{
-			CallInterval: extutil.Ptr(fmt.Sprintf("%ds", config.Config.DiscoveryIntervalInstanceSeconds)),
+			CallInterval: new(fmt.Sprintf("%ds", config.Config.DiscoveryIntervalInstanceSeconds)),
 		},
 	}
 }
@@ -49,9 +48,9 @@ func (d *redisInstanceDiscovery) DescribeTarget() discovery_kit_api.TargetDescri
 	return discovery_kit_api.TargetDescription{
 		Id:       TargetTypeInstance,
 		Label:    discovery_kit_api.PluralLabel{One: "Redis instance", Other: "Redis instances"},
-		Category: extutil.Ptr("data store"),
+		Category: new("data store"),
 		Version:  extbuild.GetSemverVersionStringOrUnknown(),
-		Icon:     extutil.Ptr(redisIcon),
+		Icon:     new(redisIcon),
 		Table: discovery_kit_api.Table{
 			Columns: []discovery_kit_api.Column{
 				{Attribute: AttrRedisName},

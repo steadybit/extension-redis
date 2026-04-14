@@ -344,7 +344,7 @@ func TestCacheExpirationAttack_Start_LargeNumberOfKeys(t *testing.T) {
 
 	keyCount := 1500
 	matchedKeys := make([]string, keyCount)
-	for i := 0; i < keyCount; i++ {
+	for i := range keyCount {
 		key := fmt.Sprintf("expire:key:%04d", i)
 		mr.Set(key, fmt.Sprintf("value-%d", i))
 		matchedKeys[i] = key
@@ -375,7 +375,7 @@ func TestCacheExpirationAttack_Start_LargeNumberOfKeys(t *testing.T) {
 	assert.Equal(t, 0, state.SkippedNonString)
 
 	// Verify TTL is set on all keys
-	for i := 0; i < keyCount; i++ {
+	for i := range keyCount {
 		key := fmt.Sprintf("expire:key:%04d", i)
 		ttl := mr.TTL(key)
 		assert.Greater(t, ttl, time.Duration(0), "Key %s should have a TTL set", key)
@@ -395,7 +395,7 @@ func TestCacheExpirationAttack_Start_LargeNumberOfKeys_WithMaxKeys(t *testing.T)
 	maxKeys := 200
 	// MatchedKeys would have been limited in Prepare to maxKeys
 	matchedKeys := make([]string, maxKeys)
-	for i := 0; i < keyCount; i++ {
+	for i := range keyCount {
 		key := fmt.Sprintf("limited-expire:key:%04d", i)
 		mr.Set(key, fmt.Sprintf("value-%d", i))
 		if i < maxKeys {
@@ -438,7 +438,7 @@ func TestCacheExpirationAttack_Start_LargeNumberOfKeys_WithRestoreOnStop(t *test
 
 	keyCount := 500
 	matchedKeys := make([]string, keyCount)
-	for i := 0; i < keyCount; i++ {
+	for i := range keyCount {
 		key := fmt.Sprintf("restore-expire:key:%04d", i)
 		mr.Set(key, fmt.Sprintf("value-%d", i))
 		matchedKeys[i] = key
@@ -475,7 +475,7 @@ func TestCacheExpirationAttack_Start_LargeNumberOfKeys_WithRestoreOnStop(t *test
 	require.NotNil(t, stopResult)
 
 	// Then - verify all keys are restored with correct values
-	for i := 0; i < keyCount; i++ {
+	for i := range keyCount {
 		key := fmt.Sprintf("restore-expire:key:%04d", i)
 		assert.True(t, mr.Exists(key), "Key %s should exist after restore", key)
 		val, err := mr.Get(key)
@@ -492,7 +492,7 @@ func TestCacheExpirationAttack_Start_LargeNumberOfKeys_MixedTypes(t *testing.T) 
 
 	stringCount := 1000
 	matchedKeys := make([]string, stringCount)
-	for i := 0; i < stringCount; i++ {
+	for i := range stringCount {
 		key := fmt.Sprintf("mixed:key:%04d", i)
 		mr.Set(key, fmt.Sprintf("value-%d", i))
 		matchedKeys[i] = key
@@ -500,7 +500,7 @@ func TestCacheExpirationAttack_Start_LargeNumberOfKeys_MixedTypes(t *testing.T) 
 	// Add non-string keys (lists) — these would have been filtered out by Prepare,
 	// so they are NOT in matchedKeys
 	listCount := 300
-	for i := 0; i < listCount; i++ {
+	for i := range listCount {
 		mr.Lpush(fmt.Sprintf("mixed:key:list:%04d", i), "item1")
 	}
 

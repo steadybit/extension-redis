@@ -94,7 +94,7 @@ func testCacheExpirationHighVolume(t *testing.T, m *e2e.Minikube, e *e2e.Extensi
 		},
 	}
 
-	config := map[string]interface{}{
+	config := map[string]any{
 		"duration":      10000,
 		"pattern":       "highvol:exp:*",
 		"ttl":           300,
@@ -122,10 +122,7 @@ func populateKeys(t *testing.T, m *e2e.Minikube, prefix string, count int) {
 	// Use a pipeline command to create keys in batches to avoid timeout
 	batchSize := 500
 	for i := 0; i < count; i += batchSize {
-		end := i + batchSize
-		if end > count {
-			end = count
-		}
+		end := min(i+batchSize, count)
 		// Build MSET args: key1 value1 key2 value2 ...
 		args := []string{
 			"kubectl", "--context", m.Profile, "-n", "default",
@@ -154,7 +151,7 @@ func countKeys(t *testing.T, m *e2e.Minikube, pattern string) int {
 
 	var count int
 	// Parse the integer from output (ignoring the auth warning line)
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "Warning") {
 			continue
@@ -180,7 +177,7 @@ func getKeyTTL(t *testing.T, m *e2e.Minikube, key string) int {
 	require.NoError(t, err, "Failed to get TTL for %s: %s", key, string(out))
 
 	var ttl int
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "Warning") {
 			continue

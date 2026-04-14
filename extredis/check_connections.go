@@ -47,52 +47,52 @@ func (a *connectionCountCheck) Describe() action_kit_api.ActionDescription {
 		Label:       "Connection Count Check",
 		Description: "Monitors Redis connected clients and fails if threshold is exceeded",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
-		Icon:        extutil.Ptr(redisIcon),
-		TargetSelection: extutil.Ptr(action_kit_api.TargetSelection{
+		Icon:        new(redisIcon),
+		TargetSelection: new(action_kit_api.TargetSelection{
 			TargetType: TargetTypeInstance,
-			SelectionTemplates: extutil.Ptr([]action_kit_api.TargetSelectionTemplate{
+			SelectionTemplates: new([]action_kit_api.TargetSelectionTemplate{
 				{
 					Label:       "by host and port",
-					Description: extutil.Ptr("Find Redis instance by host and port"),
+					Description: new("Find Redis instance by host and port"),
 					Query:       "redis.host=\"\" AND redis.port=\"\"",
 				},
 			}),
 		}),
-		Technology:  extutil.Ptr("Redis"),
-		Category:    extutil.Ptr("monitoring"),
+		Technology:  new("Redis"),
+		Category:    new("monitoring"),
 		Kind:        action_kit_api.Check,
 		TimeControl: action_kit_api.TimeControlExternal,
 		Parameters: []action_kit_api.ActionParameter{
 			{
 				Name:         "duration",
 				Label:        "Duration",
-				Description:  extutil.Ptr("How long to monitor connection count"),
+				Description:  new("How long to monitor connection count"),
 				Type:         action_kit_api.ActionParameterTypeDuration,
-				DefaultValue: extutil.Ptr("60s"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("60s"),
+				Required:     new(true),
 			},
 			{
 				Name:         "maxConnectionsPct",
 				Label:        "Max Connections (%)",
-				Description:  extutil.Ptr("Maximum allowed connections as percentage of maxclients (0 to disable)"),
+				Description:  new("Maximum allowed connections as percentage of maxclients (0 to disable)"),
 				Type:         action_kit_api.ActionParameterTypePercentage,
-				DefaultValue: extutil.Ptr("80"),
-				Required:     extutil.Ptr(false),
+				DefaultValue: new("80"),
+				Required:     new(false),
 			},
 			{
 				Name:         "maxConnections",
 				Label:        "Max Connections (absolute)",
-				Description:  extutil.Ptr("Maximum allowed number of connections (0 to disable)"),
+				Description:  new("Maximum allowed number of connections (0 to disable)"),
 				Type:         action_kit_api.ActionParameterTypeInteger,
-				DefaultValue: extutil.Ptr("0"),
-				Required:     extutil.Ptr(false),
-				Advanced:     extutil.Ptr(true),
+				DefaultValue: new("0"),
+				Required:     new(false),
+				Advanced:     new(true),
 			},
 		},
-		Status: extutil.Ptr(action_kit_api.MutatingEndpointReferenceWithCallInterval{
-			CallInterval: extutil.Ptr("2s"),
+		Status: new(action_kit_api.MutatingEndpointReferenceWithCallInterval{
+			CallInterval: new("2s"),
 		}),
-		Widgets: extutil.Ptr([]action_kit_api.Widget{
+		Widgets: new([]action_kit_api.Widget{
 			action_kit_api.LineChartWidget{
 				Type:  action_kit_api.ComSteadybitWidgetLineChart,
 				Title: "Redis Connections",
@@ -101,8 +101,8 @@ func (a *connectionCountCheck) Describe() action_kit_api.ActionDescription {
 					From:       "redis.host",
 					Mode:       action_kit_api.ComSteadybitWidgetLineChartIdentityModeSelect,
 				},
-				Tooltip: extutil.Ptr(action_kit_api.LineChartWidgetTooltipConfig{
-					MetricValueTitle: extutil.Ptr("Connected Clients"),
+				Tooltip: new(action_kit_api.LineChartWidgetTooltipConfig{
+					MetricValueTitle: new("Connected Clients"),
 					AdditionalContent: []action_kit_api.LineChartWidgetTooltipContent{
 						{From: "redis.host", Title: "Host"},
 					},
@@ -144,7 +144,7 @@ func (a *connectionCountCheck) Start(ctx context.Context, state *ConnectionCount
 	}
 
 	return &action_kit_api.StartResult{
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: "Started monitoring Redis connection count",
@@ -163,7 +163,7 @@ func (a *connectionCountCheck) Status(ctx context.Context, state *ConnectionCoun
 			Completed: completed,
 			Error: &action_kit_api.ActionKitError{
 				Title:  "Failed to connect to Redis",
-				Detail: extutil.Ptr(err.Error()),
+				Detail: new(err.Error()),
 				Status: extutil.Ptr(action_kit_api.Failed),
 			},
 		}, nil
@@ -176,7 +176,7 @@ func (a *connectionCountCheck) Status(ctx context.Context, state *ConnectionCoun
 			Completed: completed,
 			Error: &action_kit_api.ActionKitError{
 				Title:  "Failed to get clients info",
-				Detail: extutil.Ptr(err.Error()),
+				Detail: new(err.Error()),
 				Status: extutil.Ptr(action_kit_api.Failed),
 			},
 		}, nil
@@ -211,7 +211,7 @@ func (a *connectionCountCheck) Status(ctx context.Context, state *ConnectionCoun
 	// Create metrics
 	metrics := []action_kit_api.Metric{
 		{
-			Name: extutil.Ptr("redis_connected_clients"),
+			Name: new("redis_connected_clients"),
 			Metric: map[string]string{
 				"redis.host": state.RedisURL,
 			},
@@ -222,7 +222,7 @@ func (a *connectionCountCheck) Status(ctx context.Context, state *ConnectionCoun
 
 	if maxClients > 0 {
 		metrics = append(metrics, action_kit_api.Metric{
-			Name: extutil.Ptr("redis_max_clients"),
+			Name: new("redis_max_clients"),
 			Metric: map[string]string{
 				"redis.host": state.RedisURL,
 			},
@@ -233,17 +233,17 @@ func (a *connectionCountCheck) Status(ctx context.Context, state *ConnectionCoun
 
 	result := &action_kit_api.StatusResult{
 		Completed: completed,
-		Metrics:   extutil.Ptr(metrics),
+		Metrics:   new(metrics),
 	}
 
 	if completed && state.ThresholdExceeded {
 		result.Error = &action_kit_api.ActionKitError{
 			Title:  "Connection threshold exceeded",
-			Detail: extutil.Ptr(thresholdViolation),
+			Detail: new(thresholdViolation),
 			Status: extutil.Ptr(action_kit_api.Failed),
 		}
 	} else if thresholdViolation != "" {
-		result.Messages = extutil.Ptr([]action_kit_api.Message{
+		result.Messages = new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Warn),
 				Message: thresholdViolation,
