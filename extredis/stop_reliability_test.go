@@ -27,7 +27,7 @@ func TestCacheExpirationAttack_Stop_RestoresKeysAfterExpiry(t *testing.T) {
 
 	// Create keys with no TTL
 	matchedKeys := make([]string, 20)
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		key := fmt.Sprintf("exp-restore:key:%d", i)
 		mr.Set(key, fmt.Sprintf("value-%d", i))
 		matchedKeys[i] = key
@@ -65,7 +65,7 @@ func TestCacheExpirationAttack_Stop_RestoresKeysAfterExpiry(t *testing.T) {
 	require.NoError(t, err)
 
 	// All 20 keys should be back with correct values
-	for i := 0; i < 20; i++ {
+	for i := range 20 {
 		key := fmt.Sprintf("exp-restore:key:%d", i)
 		assert.True(t, mr.Exists(key), "Key %s should be recreated", key)
 		val, mrErr := mr.Get(key)

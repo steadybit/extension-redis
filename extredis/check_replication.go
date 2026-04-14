@@ -48,51 +48,51 @@ func (a *replicationLagCheck) Describe() action_kit_api.ActionDescription {
 		Label:       "Replication Lag Check",
 		Description: "Monitors Redis replication status and lag for replicas",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
-		Icon:        extutil.Ptr(redisIcon),
-		TargetSelection: extutil.Ptr(action_kit_api.TargetSelection{
+		Icon:        new(redisIcon),
+		TargetSelection: new(action_kit_api.TargetSelection{
 			TargetType: TargetTypeInstance,
-			SelectionTemplates: extutil.Ptr([]action_kit_api.TargetSelectionTemplate{
+			SelectionTemplates: new([]action_kit_api.TargetSelectionTemplate{
 				{
 					Label:       "by host and port",
-					Description: extutil.Ptr("Find Redis instance by host and port"),
+					Description: new("Find Redis instance by host and port"),
 					Query:       "redis.host=\"\" AND redis.port=\"\"",
 				},
 			}),
 		}),
-		Technology:  extutil.Ptr("Redis"),
-		Category:    extutil.Ptr("monitoring"),
+		Technology:  new("Redis"),
+		Category:    new("monitoring"),
 		Kind:        action_kit_api.Check,
 		TimeControl: action_kit_api.TimeControlExternal,
 		Parameters: []action_kit_api.ActionParameter{
 			{
 				Name:         "duration",
 				Label:        "Duration",
-				Description:  extutil.Ptr("How long to monitor replication"),
+				Description:  new("How long to monitor replication"),
 				Type:         action_kit_api.ActionParameterTypeDuration,
-				DefaultValue: extutil.Ptr("60s"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("60s"),
+				Required:     new(true),
 			},
 			{
 				Name:         "maxLagSeconds",
 				Label:        "Max Lag (seconds)",
-				Description:  extutil.Ptr("Maximum allowed replication lag in seconds"),
+				Description:  new("Maximum allowed replication lag in seconds"),
 				Type:         action_kit_api.ActionParameterTypeInteger,
-				DefaultValue: extutil.Ptr("10"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("10"),
+				Required:     new(true),
 			},
 			{
 				Name:         "requireLinkUp",
 				Label:        "Require Link Up",
-				Description:  extutil.Ptr("Fail if master link is down"),
+				Description:  new("Fail if master link is down"),
 				Type:         action_kit_api.ActionParameterTypeBoolean,
-				DefaultValue: extutil.Ptr("true"),
-				Required:     extutil.Ptr(false),
+				DefaultValue: new("true"),
+				Required:     new(false),
 			},
 		},
-		Status: extutil.Ptr(action_kit_api.MutatingEndpointReferenceWithCallInterval{
-			CallInterval: extutil.Ptr("2s"),
+		Status: new(action_kit_api.MutatingEndpointReferenceWithCallInterval{
+			CallInterval: new("2s"),
 		}),
-		Widgets: extutil.Ptr([]action_kit_api.Widget{
+		Widgets: new([]action_kit_api.Widget{
 			action_kit_api.LineChartWidget{
 				Type:  action_kit_api.ComSteadybitWidgetLineChart,
 				Title: "Redis Replication Lag",
@@ -101,8 +101,8 @@ func (a *replicationLagCheck) Describe() action_kit_api.ActionDescription {
 					From:       "redis.host",
 					Mode:       action_kit_api.ComSteadybitWidgetLineChartIdentityModeSelect,
 				},
-				Grouping: extutil.Ptr(action_kit_api.LineChartWidgetGroupingConfig{
-					ShowSummary: extutil.Ptr(true),
+				Grouping: new(action_kit_api.LineChartWidgetGroupingConfig{
+					ShowSummary: new(true),
 					Groups: []action_kit_api.LineChartWidgetGroup{
 						{
 							Title: "Link Up",
@@ -122,8 +122,8 @@ func (a *replicationLagCheck) Describe() action_kit_api.ActionDescription {
 						},
 					},
 				}),
-				Tooltip: extutil.Ptr(action_kit_api.LineChartWidgetTooltipConfig{
-					MetricValueTitle: extutil.Ptr("Lag (seconds)"),
+				Tooltip: new(action_kit_api.LineChartWidgetTooltipConfig{
+					MetricValueTitle: new("Lag (seconds)"),
 					AdditionalContent: []action_kit_api.LineChartWidgetTooltipContent{
 						{From: "redis.host", Title: "Host"},
 						{From: "master_link_status", Title: "Link Status"},
@@ -175,7 +175,7 @@ func (a *replicationLagCheck) Start(ctx context.Context, state *ReplicationLagCh
 	role := replInfo["role"]
 	if role == "master" {
 		return &action_kit_api.StartResult{
-			Messages: extutil.Ptr([]action_kit_api.Message{
+			Messages: new([]action_kit_api.Message{
 				{
 					Level:   extutil.Ptr(action_kit_api.Warn),
 					Message: "This instance is a master, not a replica. Replication lag monitoring will show connected replicas count instead.",
@@ -185,7 +185,7 @@ func (a *replicationLagCheck) Start(ctx context.Context, state *ReplicationLagCh
 	}
 
 	return &action_kit_api.StartResult{
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Started monitoring replication lag (max: %ds, require link up: %t)", state.MaxLagSeconds, state.RequireLinkUp),
@@ -204,7 +204,7 @@ func (a *replicationLagCheck) Status(ctx context.Context, state *ReplicationLagC
 			Completed: completed,
 			Error: &action_kit_api.ActionKitError{
 				Title:  "Failed to connect to Redis",
-				Detail: extutil.Ptr(err.Error()),
+				Detail: new(err.Error()),
 				Status: extutil.Ptr(action_kit_api.Failed),
 			},
 		}, nil
@@ -216,7 +216,7 @@ func (a *replicationLagCheck) Status(ctx context.Context, state *ReplicationLagC
 			Completed: completed,
 			Error: &action_kit_api.ActionKitError{
 				Title:  "Failed to get replication info",
-				Detail: extutil.Ptr(err.Error()),
+				Detail: new(err.Error()),
 				Status: extutil.Ptr(action_kit_api.Failed),
 			},
 		}, nil
@@ -257,7 +257,7 @@ func (a *replicationLagCheck) Status(ctx context.Context, state *ReplicationLagC
 
 		metrics = []action_kit_api.Metric{
 			{
-				Name: extutil.Ptr("redis_replication_lag"),
+				Name: new("redis_replication_lag"),
 				Metric: map[string]string{
 					"redis.host":         state.RedisURL,
 					"role":               role,
@@ -273,7 +273,7 @@ func (a *replicationLagCheck) Status(ctx context.Context, state *ReplicationLagC
 
 		metrics = []action_kit_api.Metric{
 			{
-				Name: extutil.Ptr("redis_connected_replicas"),
+				Name: new("redis_connected_replicas"),
 				Metric: map[string]string{
 					"redis.host": state.RedisURL,
 					"role":       role,
@@ -286,17 +286,17 @@ func (a *replicationLagCheck) Status(ctx context.Context, state *ReplicationLagC
 
 	result := &action_kit_api.StatusResult{
 		Completed: completed,
-		Metrics:   extutil.Ptr(metrics),
+		Metrics:   new(metrics),
 	}
 
 	if completed && state.ThresholdExceeded {
 		result.Error = &action_kit_api.ActionKitError{
 			Title:  "Replication check failed",
-			Detail: extutil.Ptr(thresholdViolation),
+			Detail: new(thresholdViolation),
 			Status: extutil.Ptr(action_kit_api.Failed),
 		}
 	} else if thresholdViolation != "" {
-		result.Messages = extutil.Ptr([]action_kit_api.Message{
+		result.Messages = new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Warn),
 				Message: thresholdViolation,

@@ -105,39 +105,39 @@ func (a *connectionExhaustionAttack) Describe() action_kit_api.ActionDescription
 		Label:       "Exhaust Connections",
 		Description: "Opens many connections to Redis to test connection limit handling",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
-		Icon:        extutil.Ptr(redisIcon),
-		TargetSelection: extutil.Ptr(action_kit_api.TargetSelection{
+		Icon:        new(redisIcon),
+		TargetSelection: new(action_kit_api.TargetSelection{
 			TargetType: TargetTypeInstance,
-			SelectionTemplates: extutil.Ptr([]action_kit_api.TargetSelectionTemplate{
+			SelectionTemplates: new([]action_kit_api.TargetSelectionTemplate{
 				{
 					Label:       "by host and port",
-					Description: extutil.Ptr("Find Redis instance by host and port"),
+					Description: new("Find Redis instance by host and port"),
 					Query:       "redis.host=\"\" AND redis.port=\"\"",
 				},
 			}),
 		}),
-		Technology:  extutil.Ptr("Redis"),
-		Category:    extutil.Ptr("resource"),
+		Technology:  new("Redis"),
+		Category:    new("resource"),
 		Kind:        action_kit_api.Attack,
 		TimeControl: action_kit_api.TimeControlExternal,
 		Parameters: []action_kit_api.ActionParameter{
 			{
 				Name:         "duration",
 				Label:        "Duration",
-				Description:  extutil.Ptr("How long to hold connections open"),
+				Description:  new("How long to hold connections open"),
 				Type:         action_kit_api.ActionParameterTypeDuration,
-				DefaultValue: extutil.Ptr("60s"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("60s"),
+				Required:     new(true),
 			},
 			{
 				Name:         "numConnections",
 				Label:        "Number of Connections",
-				Description:  extutil.Ptr("Number of connections to open"),
+				Description:  new("Number of connections to open"),
 				Type:         action_kit_api.ActionParameterTypeInteger,
-				DefaultValue: extutil.Ptr("100"),
-				Required:     extutil.Ptr(true),
-				MinValue:     extutil.Ptr(1),
-				MaxValue:     extutil.Ptr(10000),
+				DefaultValue: new("100"),
+				Required:     new(true),
+				MinValue:     new(1),
+				MaxValue:     new(10000),
 			},
 		},
 	}
@@ -272,7 +272,7 @@ func (a *connectionExhaustionAttack) Start(ctx context.Context, state *Connectio
 			errMsg += fmt.Sprintf(" Last error: %v", lastErr)
 		}
 		return &action_kit_api.StartResult{
-			Messages: extutil.Ptr([]action_kit_api.Message{
+			Messages: new([]action_kit_api.Message{
 				{
 					Level:   extutil.Ptr(action_kit_api.Error),
 					Message: errMsg,
@@ -298,7 +298,7 @@ func (a *connectionExhaustionAttack) Start(ctx context.Context, state *Connectio
 	go a.keepAlive(attackKey, state.EndTime)
 
 	return &action_kit_api.StartResult{
-		Messages: extutil.Ptr(messages),
+		Messages: new(messages),
 	}, nil
 }
 
@@ -346,7 +346,7 @@ func (a *connectionExhaustionAttack) Status(ctx context.Context, state *Connecti
 
 	return &action_kit_api.StatusResult{
 		Completed: completed,
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Holding %d connections, Redis total connections: %s", state.ConnectionCount, connectedClients),
@@ -391,7 +391,7 @@ func (a *connectionExhaustionAttack) Stop(ctx context.Context, state *Connection
 	}
 
 	return &action_kit_api.StopResult{
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Closed %d connections", closedCount),

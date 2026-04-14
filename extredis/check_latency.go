@@ -46,43 +46,43 @@ func (a *latencyCheck) Describe() action_kit_api.ActionDescription {
 		Label:       "Latency Check",
 		Description: "Monitors Redis response latency and fails if threshold is exceeded",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
-		Icon:        extutil.Ptr(redisIcon),
-		TargetSelection: extutil.Ptr(action_kit_api.TargetSelection{
+		Icon:        new(redisIcon),
+		TargetSelection: new(action_kit_api.TargetSelection{
 			TargetType: TargetTypeInstance,
-			SelectionTemplates: extutil.Ptr([]action_kit_api.TargetSelectionTemplate{
+			SelectionTemplates: new([]action_kit_api.TargetSelectionTemplate{
 				{
 					Label:       "by host and port",
-					Description: extutil.Ptr("Find Redis instance by host and port"),
+					Description: new("Find Redis instance by host and port"),
 					Query:       "redis.host=\"\" AND redis.port=\"\"",
 				},
 			}),
 		}),
-		Technology:  extutil.Ptr("Redis"),
-		Category:    extutil.Ptr("monitoring"),
+		Technology:  new("Redis"),
+		Category:    new("monitoring"),
 		Kind:        action_kit_api.Check,
 		TimeControl: action_kit_api.TimeControlExternal,
 		Parameters: []action_kit_api.ActionParameter{
 			{
 				Name:         "duration",
 				Label:        "Duration",
-				Description:  extutil.Ptr("How long to monitor latency"),
+				Description:  new("How long to monitor latency"),
 				Type:         action_kit_api.ActionParameterTypeDuration,
-				DefaultValue: extutil.Ptr("60s"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("60s"),
+				Required:     new(true),
 			},
 			{
 				Name:         "maxLatencyMs",
 				Label:        "Max Latency (ms)",
-				Description:  extutil.Ptr("Maximum allowed response latency in milliseconds"),
+				Description:  new("Maximum allowed response latency in milliseconds"),
 				Type:         action_kit_api.ActionParameterTypeInteger,
-				DefaultValue: extutil.Ptr("100"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("100"),
+				Required:     new(true),
 			},
 		},
-		Status: extutil.Ptr(action_kit_api.MutatingEndpointReferenceWithCallInterval{
-			CallInterval: extutil.Ptr("1s"),
+		Status: new(action_kit_api.MutatingEndpointReferenceWithCallInterval{
+			CallInterval: new("1s"),
 		}),
-		Widgets: extutil.Ptr([]action_kit_api.Widget{
+		Widgets: new([]action_kit_api.Widget{
 			action_kit_api.LineChartWidget{
 				Type:  action_kit_api.ComSteadybitWidgetLineChart,
 				Title: "Redis Latency",
@@ -91,8 +91,8 @@ func (a *latencyCheck) Describe() action_kit_api.ActionDescription {
 					From:       "redis.host",
 					Mode:       action_kit_api.ComSteadybitWidgetLineChartIdentityModeSelect,
 				},
-				Grouping: extutil.Ptr(action_kit_api.LineChartWidgetGroupingConfig{
-					ShowSummary: extutil.Ptr(true),
+				Grouping: new(action_kit_api.LineChartWidgetGroupingConfig{
+					ShowSummary: new(true),
 					Groups: []action_kit_api.LineChartWidgetGroup{
 						{
 							Title: "Under Threshold",
@@ -112,8 +112,8 @@ func (a *latencyCheck) Describe() action_kit_api.ActionDescription {
 						},
 					},
 				}),
-				Tooltip: extutil.Ptr(action_kit_api.LineChartWidgetTooltipConfig{
-					MetricValueTitle: extutil.Ptr("Latency (ms)"),
+				Tooltip: new(action_kit_api.LineChartWidgetTooltipConfig{
+					MetricValueTitle: new("Latency (ms)"),
 					AdditionalContent: []action_kit_api.LineChartWidgetTooltipContent{
 						{From: "redis.host", Title: "Host"},
 					},
@@ -156,7 +156,7 @@ func (a *latencyCheck) Start(ctx context.Context, state *LatencyCheckState) (*ac
 	}
 
 	return &action_kit_api.StartResult{
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Started monitoring Redis latency (max: %.0fms)", state.MaxLatencyMs),
@@ -177,7 +177,7 @@ func (a *latencyCheck) Status(ctx context.Context, state *LatencyCheckState) (*a
 			Completed: completed,
 			Error: &action_kit_api.ActionKitError{
 				Title:  "Failed to connect to Redis",
-				Detail: extutil.Ptr(err.Error()),
+				Detail: new(err.Error()),
 				Status: extutil.Ptr(action_kit_api.Failed),
 			},
 		}, nil
@@ -196,7 +196,7 @@ func (a *latencyCheck) Status(ctx context.Context, state *LatencyCheckState) (*a
 		state.FailedPings++
 		return &action_kit_api.StatusResult{
 			Completed: completed,
-			Messages: extutil.Ptr([]action_kit_api.Message{
+			Messages: new([]action_kit_api.Message{
 				{
 					Level:   extutil.Ptr(action_kit_api.Warn),
 					Message: fmt.Sprintf("Ping failed: %v", err),
@@ -220,7 +220,7 @@ func (a *latencyCheck) Status(ctx context.Context, state *LatencyCheckState) (*a
 	// Create metrics
 	metrics := []action_kit_api.Metric{
 		{
-			Name: extutil.Ptr("redis_latency_ms"),
+			Name: new("redis_latency_ms"),
 			Metric: map[string]string{
 				"redis.host":                   state.RedisURL,
 				"latency_constraint_fulfilled": fmt.Sprintf("%t", latencyMs <= state.MaxLatencyMs),
@@ -232,19 +232,19 @@ func (a *latencyCheck) Status(ctx context.Context, state *LatencyCheckState) (*a
 
 	result := &action_kit_api.StatusResult{
 		Completed: completed,
-		Metrics:   extutil.Ptr(metrics),
+		Metrics:   new(metrics),
 	}
 
 	// Set error if threshold exceeded at end
 	if completed && state.ThresholdExceeded {
 		result.Error = &action_kit_api.ActionKitError{
 			Title:  "Latency threshold exceeded",
-			Detail: extutil.Ptr(fmt.Sprintf("Max observed latency: %.2fms (threshold: %.0fms)", state.MaxObservedMs, state.MaxLatencyMs)),
+			Detail: new(fmt.Sprintf("Max observed latency: %.2fms (threshold: %.0fms)", state.MaxObservedMs, state.MaxLatencyMs)),
 			Status: extutil.Ptr(action_kit_api.Failed),
 		}
 	} else if thresholdViolation != "" {
 		// Add warning message but don't fail yet
-		result.Messages = extutil.Ptr([]action_kit_api.Message{
+		result.Messages = new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Warn),
 				Message: thresholdViolation,

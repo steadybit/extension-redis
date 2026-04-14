@@ -97,62 +97,62 @@ func (a *cacheExpirationAttack) Describe() action_kit_api.ActionDescription {
 		Label:       "Force Cache Expiration",
 		Description: "Sets TTL on string keys matching a pattern to force them to expire. Non-string keys are skipped. Optionally restores keys when attack stops.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
-		Icon:        extutil.Ptr(redisIcon),
-		TargetSelection: extutil.Ptr(action_kit_api.TargetSelection{
+		Icon:        new(redisIcon),
+		TargetSelection: new(action_kit_api.TargetSelection{
 			TargetType: TargetTypeDatabase,
-			SelectionTemplates: extutil.Ptr([]action_kit_api.TargetSelectionTemplate{
+			SelectionTemplates: new([]action_kit_api.TargetSelectionTemplate{
 				{
 					Label:       "by host and database",
-					Description: extutil.Ptr("Find Redis database by host and index"),
+					Description: new("Find Redis database by host and index"),
 					Query:       "redis.host=\"\" AND redis.database.index=\"\"",
 				},
 			}),
 		}),
-		Technology:  extutil.Ptr("Redis"),
-		Category:    extutil.Ptr("state"),
+		Technology:  new("Redis"),
+		Category:    new("state"),
 		Kind:        action_kit_api.Attack,
 		TimeControl: action_kit_api.TimeControlExternal,
 		Parameters: []action_kit_api.ActionParameter{
 			{
 				Name:         "duration",
 				Label:        "Duration",
-				Description:  extutil.Ptr("How long the attack should last (for status tracking)"),
+				Description:  new("How long the attack should last (for status tracking)"),
 				Type:         action_kit_api.ActionParameterTypeDuration,
-				DefaultValue: extutil.Ptr("60s"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("60s"),
+				Required:     new(true),
 			},
 			{
 				Name:         "pattern",
 				Label:        "Key Pattern",
-				Description:  extutil.Ptr("Pattern to match keys for expiration (e.g., 'session:*', 'cache:*'). Only string keys will be affected."),
+				Description:  new("Pattern to match keys for expiration (e.g., 'session:*', 'cache:*'). Only string keys will be affected."),
 				Type:         action_kit_api.ActionParameterTypeString,
-				DefaultValue: extutil.Ptr(""),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new(""),
+				Required:     new(true),
 			},
 			{
 				Name:         "ttl",
 				Label:        "TTL (seconds)",
-				Description:  extutil.Ptr("Time-to-live in seconds before keys expire. Set to 1 for immediate expiration."),
+				Description:  new("Time-to-live in seconds before keys expire. Set to 1 for immediate expiration."),
 				Type:         action_kit_api.ActionParameterTypeInteger,
-				DefaultValue: extutil.Ptr("5"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("5"),
+				Required:     new(true),
 			},
 			{
 				Name:         "maxKeys",
 				Label:        "Max Keys",
-				Description:  extutil.Ptr("Maximum number of keys to affect (0 = unlimited, use with caution)"),
+				Description:  new("Maximum number of keys to affect (0 = unlimited, use with caution)"),
 				Type:         action_kit_api.ActionParameterTypeInteger,
-				DefaultValue: extutil.Ptr("100"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("100"),
+				Required:     new(true),
 			},
 			{
 				Name:         "restoreOnStop",
 				Label:        "Restore on Stop",
-				Description:  extutil.Ptr("Restore expired keys with their original values and TTLs when attack stops"),
+				Description:  new("Restore expired keys with their original values and TTLs when attack stops"),
 				Type:         action_kit_api.ActionParameterTypeBoolean,
-				DefaultValue: extutil.Ptr("true"),
-				Required:     extutil.Ptr(false),
-				Advanced:     extutil.Ptr(true),
+				DefaultValue: new("true"),
+				Required:     new(false),
+				Advanced:     new(true),
 			},
 		},
 	}
@@ -365,7 +365,7 @@ func (a *cacheExpirationAttack) Start(ctx context.Context, state *CacheExpiratio
 	}
 
 	return &action_kit_api.StartResult{
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: msg,
@@ -394,7 +394,7 @@ func (a *cacheExpirationAttack) Status(ctx context.Context, state *CacheExpirati
 
 	return &action_kit_api.StatusResult{
 		Completed: completed,
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Cache expiration: %d/%d keys expired", expiredCount, len(state.AffectedKeys)),
@@ -409,7 +409,7 @@ func (a *cacheExpirationAttack) Stop(ctx context.Context, state *CacheExpiration
 
 	if !state.RestoreOnStop || len(state.BackupData) == 0 {
 		return &action_kit_api.StopResult{
-			Messages: extutil.Ptr([]action_kit_api.Message{
+			Messages: new([]action_kit_api.Message{
 				{
 					Level:   extutil.Ptr(action_kit_api.Info),
 					Message: fmt.Sprintf("Cache expiration attack completed. %d keys were affected.", len(state.AffectedKeys)),
@@ -421,7 +421,7 @@ func (a *cacheExpirationAttack) Stop(ctx context.Context, state *CacheExpiration
 	client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 	if err != nil {
 		return &action_kit_api.StopResult{
-			Messages: extutil.Ptr([]action_kit_api.Message{
+			Messages: new([]action_kit_api.Message{
 				{
 					Level:   extutil.Ptr(action_kit_api.Warn),
 					Message: fmt.Sprintf("Failed to connect to Redis for restore: %v", err),
@@ -524,7 +524,7 @@ func (a *cacheExpirationAttack) Stop(ctx context.Context, state *CacheExpiration
 		Msg("Restore phase complete: all keys restored successfully")
 
 	return &action_kit_api.StopResult{
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Restore complete: %d/%d keys restored (%d recreated after expiration, %d had TTL restored)", restoredCount, len(state.BackupData), expiredAndRestored, alreadyExisted),

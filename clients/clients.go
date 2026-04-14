@@ -215,7 +215,7 @@ func ParseClusterNodes(ctx context.Context, client *redis.Client) ([]ClusterNode
 
 func parseClusterNodesOutput(raw string) []ClusterNodeInfo {
 	var nodes []ClusterNodeInfo
-	for _, line := range strings.Split(raw, "\n") {
+	for line := range strings.SplitSeq(raw, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
 			continue
@@ -387,9 +387,9 @@ func GetRedisInfo(ctx context.Context, client redis.Cmdable, section string) (ma
 
 func parseInfoResult(info string) map[string]string {
 	result := make(map[string]string)
-	lines := strings.Split(info, "\n")
+	lines := strings.SplitSeq(info, "\n")
 
-	for _, line := range lines {
+	for line := range lines {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue

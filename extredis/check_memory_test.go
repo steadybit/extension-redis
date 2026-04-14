@@ -349,7 +349,7 @@ func TestMemoryCheck_Status_WithMetrics(t *testing.T) {
 	require.NoError(t, err)
 	defer mr.Close()
 
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		mr.Set(fmt.Sprintf("key:%d", i), fmt.Sprintf("value-%d", i))
 	}
 

@@ -43,29 +43,29 @@ func (a *sentinelStopAttack) Describe() action_kit_api.ActionDescription {
 		Label:       "Stop Sentinel",
 		Description: "Stops the Redis Sentinel server for a specific duration using DEBUG SLEEP, making it unresponsive to all clients and other Sentinels",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
-		Icon:        extutil.Ptr(redisIcon),
-		TargetSelection: extutil.Ptr(action_kit_api.TargetSelection{
+		Icon:        new(redisIcon),
+		TargetSelection: new(action_kit_api.TargetSelection{
 			TargetType: TargetTypeInstance,
-			SelectionTemplates: extutil.Ptr([]action_kit_api.TargetSelectionTemplate{
+			SelectionTemplates: new([]action_kit_api.TargetSelectionTemplate{
 				{
 					Label:       "by host and port",
-					Description: extutil.Ptr("Find Redis Sentinel by host and port"),
+					Description: new("Find Redis Sentinel by host and port"),
 					Query:       "redis.host=\"\" AND redis.port=\"\"",
 				},
 			}),
 		}),
-		Technology:  extutil.Ptr("Redis"),
-		Category:    extutil.Ptr("availability"),
+		Technology:  new("Redis"),
+		Category:    new("availability"),
 		Kind:        action_kit_api.Attack,
 		TimeControl: action_kit_api.TimeControlInternal,
 		Parameters: []action_kit_api.ActionParameter{
 			{
 				Name:         "duration",
 				Label:        "Duration",
-				Description:  extutil.Ptr("How long the Sentinel should be unresponsive. The Sentinel automatically recovers after this duration."),
+				Description:  new("How long the Sentinel should be unresponsive. The Sentinel automatically recovers after this duration."),
 				Type:         action_kit_api.ActionParameterTypeDuration,
-				DefaultValue: extutil.Ptr("30s"),
-				Required:     extutil.Ptr(true),
+				DefaultValue: new("30s"),
+				Required:     new(true),
 			},
 		},
 	}
@@ -147,7 +147,7 @@ func (a *sentinelStopAttack) Start(ctx context.Context, state *SentinelStopState
 	})
 
 	return &action_kit_api.StartResult{
-		Messages: extutil.Ptr(messages),
+		Messages: new(messages),
 	}, nil
 }
 
@@ -161,7 +161,7 @@ func (a *sentinelStopAttack) Status(ctx context.Context, state *SentinelStopStat
 		if clients.PingRedis(ctx, client) == nil {
 			return &action_kit_api.StatusResult{
 				Completed: true,
-				Messages: extutil.Ptr([]action_kit_api.Message{
+				Messages: new([]action_kit_api.Message{
 					{
 						Level:   extutil.Ptr(action_kit_api.Info),
 						Message: "Sentinel is responsive again",
@@ -174,7 +174,7 @@ func (a *sentinelStopAttack) Status(ctx context.Context, state *SentinelStopStat
 	if remaining <= 0 {
 		return &action_kit_api.StatusResult{
 			Completed: true,
-			Messages: extutil.Ptr([]action_kit_api.Message{
+			Messages: new([]action_kit_api.Message{
 				{
 					Level:   extutil.Ptr(action_kit_api.Warn),
 					Message: "Expected sleep duration elapsed but Sentinel is still unresponsive",
@@ -185,7 +185,7 @@ func (a *sentinelStopAttack) Status(ctx context.Context, state *SentinelStopStat
 
 	return &action_kit_api.StatusResult{
 		Completed: false,
-		Messages: extutil.Ptr([]action_kit_api.Message{
+		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
 				Message: fmt.Sprintf("Sentinel is sleeping, %d seconds remaining", remaining),

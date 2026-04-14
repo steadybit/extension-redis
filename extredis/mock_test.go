@@ -260,7 +260,7 @@ func TestMock_ConnectionExhaustion_MultipleConnections(t *testing.T) {
 
 	// When
 	ctx := context.Background()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		_, err := client.Ping(ctx).Result()
 		require.NoError(t, err)
 	}
