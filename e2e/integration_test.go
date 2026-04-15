@@ -140,7 +140,7 @@ func populateKeys(t *testing.T, m *e2e.Minikube, prefix string, count int) {
 // countKeys returns the number of keys matching the pattern
 func countKeys(t *testing.T, m *e2e.Minikube, pattern string) int {
 	t.Helper()
-	cmd := exec.Command( //NOSNONAR go:S4036
+	cmd := exec.Command( //NOSONAR go:S4036
 		"kubectl", "--context", m.Profile, "-n", "default",
 		"exec", "my-redis-master-0", "--",
 		"redis-cli", "-a", "redis-password",
@@ -167,7 +167,7 @@ func countKeys(t *testing.T, m *e2e.Minikube, pattern string) int {
 // getKeyTTL returns the TTL in seconds of a key (-1 = no TTL, -2 = key doesn't exist)
 func getKeyTTL(t *testing.T, m *e2e.Minikube, key string) int {
 	t.Helper()
-	cmd := exec.Command( //NOSNONAR go:S4036
+	cmd := exec.Command( //NOSONAR go:S4036
 		"kubectl", "--context", m.Profile, "-n", "default",
 		"exec", "my-redis-master-0", "--",
 		"redis-cli", "-a", "redis-password",
@@ -192,7 +192,7 @@ func getKeyTTL(t *testing.T, m *e2e.Minikube, key string) int {
 
 // cleanupKeys deletes all keys matching the pattern
 func cleanupKeys(m *e2e.Minikube, pattern string) {
-	exec.Command( //NOSNONAR go:S4036
+	exec.Command( //NOSONAR go:S4036
 		"kubectl", "--context", m.Profile, "-n", "default",
 		"exec", "my-redis-master-0", "--",
 		"redis-cli", "-a", "redis-password",
@@ -201,7 +201,7 @@ func cleanupKeys(m *e2e.Minikube, pattern string) {
 }
 
 func helmInstallRedis(minikube *e2e.Minikube) error {
-	if out, err := exec.Command("helm", "repo", "add", "bitnami", "https://charts.bitnami.com/bitnami").CombinedOutput(); err != nil { //NOSNONAR go:S4036
+	if out, err := exec.Command("helm", "repo", "add", "bitnami", "https://charts.bitnami.com/bitnami").CombinedOutput(); err != nil { //NOSONAR go:S4036
 		return fmt.Errorf("failed to add repo: %s: %s", err, out)
 	}
 
@@ -220,14 +220,14 @@ func helmInstallRedis(minikube *e2e.Minikube) error {
 		"--timeout=10m0s",
 	}
 
-	if out, err := exec.Command("helm", args...).CombinedOutput(); err != nil { //NOSNONAR go:S4036
+	if out, err := exec.Command("helm", args...).CombinedOutput(); err != nil { //NOSONAR go:S4036
 		return fmt.Errorf("failed to install redis chart: %s: %s", err, string(out))
 	}
 
 	// Wait for Redis to be ready by checking the service
 	deadline := time.Now().Add(2 * time.Minute)
 	for {
-		cmd := exec.Command( //NOSNONAR go:S4036
+		cmd := exec.Command( //NOSONAR go:S4036
 			"kubectl", "--context", minikube.Profile, "-n", "default",
 			"exec", "my-redis-master-0", "--",
 			"redis-cli", "-a", "redis-password", "ping",
@@ -253,7 +253,7 @@ func helmInstallRedis(minikube *e2e.Minikube) error {
 
 func createTestData(minikube *e2e.Minikube) error {
 	// Create some test keys in db0
-	cmd := exec.Command( //NOSNONAR go:S4036
+	cmd := exec.Command( //NOSONAR go:S4036
 		"kubectl", "--context", minikube.Profile, "-n", "default",
 		"exec", "my-redis-master-0", "--",
 		"redis-cli", "-a", "redis-password",
@@ -263,7 +263,7 @@ func createTestData(minikube *e2e.Minikube) error {
 		return fmt.Errorf("failed to create test key: %s: %s", err, string(out))
 	}
 
-	cmd = exec.Command( //NOSNONAR go:S4036
+	cmd = exec.Command( //NOSONAR go:S4036
 		"kubectl", "--context", minikube.Profile, "-n", "default",
 		"exec", "my-redis-master-0", "--",
 		"redis-cli", "-a", "redis-password",
