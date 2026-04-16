@@ -51,7 +51,7 @@ func (a *maxmemoryLimitAttack) Describe() action_kit_api.ActionDescription {
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.instance.maxmemory-limit",
 		Label:       "Limit MaxMemory",
-		Description: "Reduces Redis maxmemory to force evictions or OOM errors",
+		Description: "Reduces Redis maxmemory configuration to force key evictions or OOM errors. The original maxmemory and eviction policy are restored when the attack ends. Combine with Memory Usage Check to monitor the impact.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        new(redisIcon),
 		TargetSelection: new(action_kit_api.TargetSelection{

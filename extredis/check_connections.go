@@ -45,7 +45,7 @@ func (a *connectionCountCheck) Describe() action_kit_api.ActionDescription {
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.instance.check-connections",
 		Label:       "Connection Count Check",
-		Description: "Monitors Redis connected clients and fails if threshold is exceeded",
+		Description: "Monitors Redis connected clients count and fails the experiment if the threshold is exceeded. Supports both percentage-of-maxclients and absolute connection count thresholds. Use alongside Exhaust Connections to verify connection pool behavior.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        new(redisIcon),
 		TargetSelection: new(action_kit_api.TargetSelection{

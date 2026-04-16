@@ -46,7 +46,7 @@ func (a *replicationLagCheck) Describe() action_kit_api.ActionDescription {
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.instance.check-replication",
 		Label:       "Replication Lag Check",
-		Description: "Monitors Redis replication status and lag for replicas",
+		Description: "Monitors Redis replication status and lag for replicas. Fails if replication lag exceeds the threshold or if the master link goes down (configurable). Use to verify replication resilience during fault injection.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        new(redisIcon),
 		TargetSelection: new(action_kit_api.TargetSelection{

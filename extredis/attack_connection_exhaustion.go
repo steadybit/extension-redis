@@ -103,7 +103,7 @@ func (a *connectionExhaustionAttack) Describe() action_kit_api.ActionDescription
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.instance.connection-exhaustion",
 		Label:       "Exhaust Connections",
-		Description: "Opens many connections to Redis to test connection limit handling",
+		Description: "Opens many connections to Redis to exhaust the connection pool and test connection limit handling. Combine with Connection Count Check to verify your application handles connection pressure gracefully.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        new(redisIcon),
 		TargetSelection: new(action_kit_api.TargetSelection{

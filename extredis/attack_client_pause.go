@@ -45,7 +45,7 @@ func (a *clientPauseAttack) Describe() action_kit_api.ActionDescription {
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.instance.client-pause",
 		Label:       "Pause Clients",
-		Description: "Suspends all client command processing for a duration using CLIENT PAUSE",
+		Description: "Suspends all client command processing for a duration using CLIENT PAUSE. Can pause all commands or only write commands. Clients automatically resume when the pause expires. Combine with Latency Check to verify application timeout handling.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        new(redisIcon),
 		TargetSelection: new(action_kit_api.TargetSelection{

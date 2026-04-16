@@ -44,7 +44,7 @@ func (a *memoryCheck) Describe() action_kit_api.ActionDescription {
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.instance.check-memory",
 		Label:       "Memory Usage Check",
-		Description: "Monitors Redis memory usage and fails if threshold is exceeded",
+		Description: "Monitors Redis memory usage and fails the experiment if the threshold is exceeded. Supports both percentage-of-maxmemory and absolute MB thresholds. Use alongside Limit MaxMemory to verify eviction behavior.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        new(redisIcon),
 		TargetSelection: new(action_kit_api.TargetSelection{
