@@ -11,6 +11,35 @@ entries:
         - name: Steadybit reliability hub
           url: https://hub.steadybit.com
     apiVersion: v2
+    appVersion: v1.1.2
+    created: "2026-05-12T15:43:19.355084641Z"
+    dependencies:
+    - name: extensionlib
+      repository: https://steadybit.github.io/helm-charts
+      version: ^1.4.4
+    description: Steadybit extension for redis.
+    digest: 401a95503e2182067a366d0516e2463e3b911eecbe475f204c6eeecc7c0ebb90
+    home: https://www.steadybit.com/
+    icon: https://steadybit-website-assets.s3.amazonaws.com/logo-symbol-transparent.png
+    maintainers:
+    - email: antoine@steadybit.com
+      name: achoimet
+    name: steadybit-extension-redis
+    sources:
+    - https://github.com/steadybit/extension-redis
+    urls:
+    - https://github.com/steadybit/extension-redis/releases/download/steadybit-extension-redis-1.0.8/steadybit-extension-redis-1.0.8.tgz
+    version: 1.0.8
+  - annotations:
+      artifacthub.io/images: |
+        - name: logo
+          image: https://steadybit-website-assets.s3.amazonaws.com/logo-symbol-transparent.png
+      artifacthub.io/links: |-
+        - name: Steadybit website
+          url: https://www.steadybit.com
+        - name: Steadybit reliability hub
+          url: https://hub.steadybit.com
+    apiVersion: v2
     appVersion: v1.1.1
     created: "2026-04-13T12:15:21.669419793Z"
     dependencies:
@@ -226,4 +255,4 @@ entries:
     urls:
     - https://github.com/steadybit/extension-redis/releases/download/steadybit-extension-redis-1.0.0/steadybit-extension-redis-1.0.0.tgz
     version: 1.0.0
-generated: "2026-04-13T12:15:21.669449378Z"
+generated: "2026-05-12T15:43:19.355124626Z"
