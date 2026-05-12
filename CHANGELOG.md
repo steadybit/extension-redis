@@ -1,8 +1,10 @@
 # Changelog
 
-## (next)
+## v1.1.2
 
 - Bump Go to 1.26.3
+- Update dependencies
+- Improved action descriptions
 
 ## v1.1.1
 
