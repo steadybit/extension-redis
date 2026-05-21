@@ -53,7 +53,7 @@ func (a *clientPauseAttack) Describe() action_kit_api.ActionDescription {
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.instance.client-pause",
 		Label:       "Pause Write Clients",
-		Description: "Suspends write command processing on the target Redis instance using CLIENT PAUSE WRITE. Reads (including the extension's own discovery probes) continue to flow, and the attack is fully reversible — CLIENT UNPAUSE works because Redis only blocks data-writing commands during a WRITE pause. Combine with Latency Check to verify application timeout handling on write paths.",
+		Description: "Pauses write commands on the Redis instance using CLIENT PAUSE WRITE.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        new(redisIcon),
 		TargetSelection: new(action_kit_api.TargetSelection{
