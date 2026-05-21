@@ -26,22 +26,17 @@ func TestClientPauseAttack_Describe(t *testing.T) {
 
 	// Then
 	assert.Equal(t, "com.steadybit.extension_redis.instance.client-pause", desc.Id)
-	assert.Equal(t, "Pause Clients", desc.Label)
-	assert.Contains(t, desc.Description, "CLIENT PAUSE")
+	assert.Equal(t, "Pause Write Clients", desc.Label)
+	assert.Contains(t, desc.Description, "CLIENT PAUSE WRITE")
 	assert.Equal(t, TargetTypeInstance, desc.TargetSelection.TargetType)
 	assert.Equal(t, action_kit_api.Attack, desc.Kind)
 	assert.Equal(t, action_kit_api.TimeControlExternal, desc.TimeControl)
 
-	// Check parameters
+	// Only the duration parameter is exposed — the attack always pauses writes
+	// only, so there is no mode selection.
 	require.NotNil(t, desc.Parameters)
-	require.Len(t, desc.Parameters, 2)
-
-	paramNames := make([]string, len(desc.Parameters))
-	for i, p := range desc.Parameters {
-		paramNames[i] = p.Name
-	}
-	assert.Contains(t, paramNames, "duration")
-	assert.Contains(t, paramNames, "pauseMode")
+	require.Len(t, desc.Parameters, 1)
+	assert.Equal(t, "duration", desc.Parameters[0].Name)
 }
 
 func TestClientPauseAttack_Prepare_MissingURL(t *testing.T) {
@@ -53,8 +48,7 @@ func TestClientPauseAttack_Prepare_MissingURL(t *testing.T) {
 			Attributes: map[string][]string{},
 		},
 		Config: map[string]any{
-			"duration":  float64(30000),
-			"pauseMode": "ALL",
+			"duration": float64(30000),
 		},
 		ExecutionId: uuid.New(),
 	})
@@ -83,8 +77,7 @@ func TestClientPauseAttack_Prepare_SetsState(t *testing.T) {
 			},
 		},
 		Config: map[string]any{
-			"duration":  float64(45000),
-			"pauseMode": "WRITE",
+			"duration": float64(45000),
 		},
 		ExecutionId: uuid.New(),
 	})
@@ -96,66 +89,7 @@ func TestClientPauseAttack_Prepare_SetsState(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, redisURL, state.RedisURL)
 	assert.Equal(t, 0, state.DB)
-	assert.Equal(t, "WRITE", state.PauseMode)
 	assert.WithinDuration(t, time.Now().Add(45*time.Second), time.Unix(state.EndTime, 0), 2*time.Second)
-}
-
-func TestClientPauseAttack_Prepare_DefaultPauseMode(t *testing.T) {
-	// Given - invalid pause mode
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	action := &clientPauseAttack{}
-	state := ClientPauseState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{
-				AttrRedisURL: {fmt.Sprintf("redis://%s", mr.Addr())},
-			},
-		},
-		Config: map[string]any{
-			"duration":  float64(30000),
-			"pauseMode": "INVALID",
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	// When
-	_, err = action.Prepare(context.Background(), &state, req)
-
-	// Then - should default to ALL
-	require.NoError(t, err)
-	assert.Equal(t, "ALL", state.PauseMode)
-}
-
-func TestClientPauseAttack_Prepare_AllMode(t *testing.T) {
-	// Given
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	action := &clientPauseAttack{}
-	state := ClientPauseState{}
-	req := extutil.JsonMangle(action_kit_api.PrepareActionRequestBody{
-		Target: &action_kit_api.Target{
-			Attributes: map[string][]string{
-				AttrRedisURL: {fmt.Sprintf("redis://%s", mr.Addr())},
-			},
-		},
-		Config: map[string]any{
-			"duration":  float64(30000),
-			"pauseMode": "ALL",
-		},
-		ExecutionId: uuid.New(),
-	})
-
-	// When
-	_, err = action.Prepare(context.Background(), &state, req)
-
-	// Then
-	require.NoError(t, err)
-	assert.Equal(t, "ALL", state.PauseMode)
 }
 
 func TestClientPauseAttack_NewEmptyState(t *testing.T) {
@@ -177,10 +111,9 @@ func TestClientPauseAttack_Status(t *testing.T) {
 
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+		RedisURL: fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:       0,
+		EndTime:  time.Now().Add(30 * time.Second).Unix(),
 	}
 
 	// When
@@ -196,10 +129,9 @@ func TestClientPauseAttack_Status_Completed(t *testing.T) {
 	// Given
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  "redis://localhost:6379",
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(-10 * time.Second).Unix(), // Already past
+		RedisURL: "redis://localhost:6379",
+		DB:       0,
+		EndTime:  time.Now().Add(-10 * time.Second).Unix(),
 	}
 
 	// When
@@ -215,10 +147,9 @@ func TestClientPauseAttack_Start_ConnectionError(t *testing.T) {
 	// Given
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  "redis://nonexistent:6379",
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+		RedisURL: "redis://nonexistent:6379",
+		DB:       0,
+		EndTime:  time.Now().Add(30 * time.Second).Unix(),
 	}
 
 	// When
@@ -229,48 +160,23 @@ func TestClientPauseAttack_Start_ConnectionError(t *testing.T) {
 }
 
 func TestClientPauseAttack_Start_WithMiniredis(t *testing.T) {
-	// Given - miniredis supports CLIENT PAUSE
+	// Given - miniredis may not implement CLIENT PAUSE WRITE; either way the
+	// connection/ping path is exercised.
 	mr, err := miniredis.Run()
 	require.NoError(t, err)
 	defer mr.Close()
 
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(5 * time.Second).Unix(),
+		RedisURL: fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:       0,
+		EndTime:  time.Now().Add(5 * time.Second).Unix(),
 	}
 
 	// When
 	result, err := action.Start(context.Background(), &state)
 
-	// Then - miniredis may not support CLIENT PAUSE, but the connection/ping path is exercised
-	if err != nil {
-		assert.Contains(t, err.Error(), "CLIENT PAUSE")
-	} else {
-		require.NotNil(t, result)
-	}
-}
-
-func TestClientPauseAttack_Start_WriteMode(t *testing.T) {
-	// Given
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-
-	action := &clientPauseAttack{}
-	state := ClientPauseState{
-		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:        0,
-		PauseMode: "WRITE",
-		EndTime:   time.Now().Add(5 * time.Second).Unix(),
-	}
-
-	// When
-	result, err := action.Start(context.Background(), &state)
-
-	// Then - exercises the WRITE branch
+	// Then
 	if err != nil {
 		assert.Contains(t, err.Error(), "CLIENT PAUSE")
 	} else {
@@ -286,16 +192,15 @@ func TestClientPauseAttack_Start_ExpiredDuration(t *testing.T) {
 
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(-10 * time.Second).Unix(), // Already past
+		RedisURL: fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:       0,
+		EndTime:  time.Now().Add(-10 * time.Second).Unix(),
 	}
 
 	// When
 	_, err = action.Start(context.Background(), &state)
 
-	// Then - pause duration must be positive
+	// Then
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "positive")
 }
@@ -304,10 +209,9 @@ func TestClientPauseAttack_Stop_ConnectionError(t *testing.T) {
 	// Given
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  "redis://nonexistent:6379",
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+		RedisURL: "redis://nonexistent:6379",
+		DB:       0,
+		EndTime:  time.Now().Add(30 * time.Second).Unix(),
 	}
 
 	// When
@@ -325,10 +229,9 @@ func TestClientPauseAttack_Stop_WithMiniredis(t *testing.T) {
 
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+		RedisURL: fmt.Sprintf("redis://%s", mr.Addr()),
+		DB:       0,
+		EndTime:  time.Now().Add(30 * time.Second).Unix(),
 	}
 
 	// When
@@ -343,13 +246,12 @@ func TestClientPauseAttack_Stop_WithMiniredis(t *testing.T) {
 }
 
 func TestClientPauseAttack_Status_RemainingNegative(t *testing.T) {
-	// Given - remaining time is negative
+	// Given
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  "redis://localhost:6379",
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(-100 * time.Second).Unix(),
+		RedisURL: "redis://localhost:6379",
+		DB:       0,
+		EndTime:  time.Now().Add(-100 * time.Second).Unix(),
 	}
 
 	// When
@@ -368,82 +270,4 @@ func TestNewClientPauseAttack(t *testing.T) {
 
 	// Then
 	require.NotNil(t, action)
-}
-
-func TestClientPauseAttack_Start_RegistersPauseForAllMode(t *testing.T) {
-	// Given - ALL pause mode must mark the endpoint so discovery skips it.
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-	defer ResetPauseRegistry()
-	ResetPauseRegistry()
-
-	action := &clientPauseAttack{}
-	redisURL := fmt.Sprintf("redis://%s", mr.Addr())
-	state := ClientPauseState{
-		RedisURL:  redisURL,
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(30 * time.Second).Unix(),
-	}
-
-	// When
-	_, err = action.Start(context.Background(), &state)
-	// miniredis may not implement CLIENT PAUSE; either way the registry call
-	// happens only on success, so only assert when Start succeeded.
-	if err == nil {
-		assert.True(t, IsPaused(redisURL), "ALL pause must register endpoint")
-	}
-}
-
-func TestClientPauseAttack_Start_DoesNotRegisterForWriteMode(t *testing.T) {
-	// Given - WRITE mode leaves reads (PING/INFO) working, so discovery must
-	// keep probing the endpoint normally.
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-	defer ResetPauseRegistry()
-	ResetPauseRegistry()
-
-	action := &clientPauseAttack{}
-	redisURL := fmt.Sprintf("redis://%s", mr.Addr())
-	state := ClientPauseState{
-		RedisURL:  redisURL,
-		DB:        0,
-		PauseMode: "WRITE",
-		EndTime:   time.Now().Add(30 * time.Second).Unix(),
-	}
-
-	// When
-	_, _ = action.Start(context.Background(), &state)
-	assert.False(t, IsPaused(redisURL), "WRITE pause must not affect discovery")
-}
-
-func TestClientPauseAttack_Stop_ClearsPause(t *testing.T) {
-	// Given - Stop must clear the registry entry even if UNPAUSE fails on the
-	// underlying mock so that discovery resumes after the attack ends.
-	mr, err := miniredis.Run()
-	require.NoError(t, err)
-	defer mr.Close()
-	defer ResetPauseRegistry()
-	ResetPauseRegistry()
-
-	redisURL := fmt.Sprintf("redis://%s", mr.Addr())
-	MarkPaused(redisURL, time.Now().Add(30*time.Second))
-	require.True(t, IsPaused(redisURL))
-
-	action := &clientPauseAttack{}
-	state := ClientPauseState{
-		RedisURL:  redisURL,
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(30 * time.Second).Unix(),
-	}
-
-	// When
-	_, _ = action.Stop(context.Background(), &state)
-
-	// Then - regardless of whether miniredis implements UNPAUSE, the registry
-	// must be cleared.
-	assert.False(t, IsPaused(redisURL))
 }

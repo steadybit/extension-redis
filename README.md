@@ -73,15 +73,14 @@ Discovers Redis databases (db0-db15) and exposes:
   - `duration` - How long to hold connections
   - `numConnections` - Number of connections to open (default: 100)
 
-#### Pause Clients
+#### Pause Write Clients
 - **ID**: `com.steadybit.extension_redis.instance.client-pause`
 - **Target**: Instance
-- **Description**: Suspends all client command processing using CLIENT PAUSE
+- **Description**: Suspends write command processing using `CLIENT PAUSE ... WRITE`. Reads (including the extension's discovery probes) keep flowing, so this attack is fully reversible — `CLIENT UNPAUSE` works because Redis only stalls data-writing commands during a WRITE pause.
 - **Parameters**:
-  - `duration` - How long to pause clients
-  - `pauseMode` - ALL (all commands) or WRITE (write commands only)
-- **Reversibility**: Auto-reverts after timeout
-- **Discovery interaction**: Redis `CLIENT PAUSE ALL` is server-wide and offers no client-exemption, so the extension's own discovery connection is also paused. The extension detects this and skips discovery for the affected endpoint while the attack is active, serving the previous discovery result so targets stay visible. Use `WRITE` mode if you need discovery to keep probing the instance during the attack.
+  - `duration` - How long to pause write commands
+- **Reversibility**: Stop sends `CLIENT UNPAUSE`; pause also auto-expires after the configured duration.
+- **Why writes only**: `CLIENT PAUSE ALL` cannot be aborted early — Redis applies the pause check to every non-master command, including `CLIENT UNPAUSE` itself, so the attack would run for its full duration with no way to roll back. WRITE mode avoids that trap.
 
 #### Limit MaxMemory
 - **ID**: `com.steadybit.extension_redis.instance.maxmemory-limit`
