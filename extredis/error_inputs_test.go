@@ -58,10 +58,9 @@ func TestCacheExpirationAttack_Start_MalformedURL(t *testing.T) {
 func TestClientPauseAttack_Start_MalformedURL(t *testing.T) {
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  "http://wrong:6379",
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(5 * time.Second).Unix(),
+		RedisURL: "http://wrong:6379",
+		DB:       0,
+		EndTime:  time.Now().Add(5 * time.Second).Unix(),
 	}
 
 	_, err := action.Start(context.Background(), &state)
@@ -136,11 +135,10 @@ func TestClientPauseAttack_Start_WrongPassword(t *testing.T) {
 
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  fmt.Sprintf("redis://%s", mr.Addr()),
-		Password:  "wrong-password",
-		DB:        0,
-		PauseMode: "ALL",
-		EndTime:   time.Now().Add(5 * time.Second).Unix(),
+		RedisURL: fmt.Sprintf("redis://%s", mr.Addr()),
+		Password: "wrong-password",
+		DB:       0,
+		EndTime:  time.Now().Add(5 * time.Second).Unix(),
 	}
 
 	_, err = action.Start(context.Background(), &state)
@@ -202,8 +200,7 @@ func TestClientPauseAttack_Prepare_EmptyTargetAttributes(t *testing.T) {
 			Attributes: map[string][]string{},
 		},
 		Config: map[string]any{
-			"duration":  float64(30000),
-			"pauseMode": "ALL",
+			"duration": float64(30000),
 		},
 		ExecutionId: uuid.New(),
 	})

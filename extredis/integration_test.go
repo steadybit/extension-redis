@@ -58,10 +58,9 @@ func TestIntegration_ClientPauseAttack_StartStop(t *testing.T) {
 
 	action := &clientPauseAttack{}
 	state := ClientPauseState{
-		RedisURL:  redisURL,
-		DB:        0,
-		PauseMode: "WRITE",
-		EndTime:   time.Now().Add(5 * time.Second).Unix(),
+		RedisURL: redisURL,
+		DB:       0,
+		EndTime:  time.Now().Add(5 * time.Second).Unix(),
 	}
 
 	// Start
