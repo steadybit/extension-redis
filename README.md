@@ -81,6 +81,7 @@ Discovers Redis databases (db0-db15) and exposes:
   - `duration` - How long to pause clients
   - `pauseMode` - ALL (all commands) or WRITE (write commands only)
 - **Reversibility**: Auto-reverts after timeout
+- **Discovery interaction**: Redis `CLIENT PAUSE ALL` is server-wide and offers no client-exemption, so the extension's own discovery connection is also paused. The extension detects this and skips discovery for the affected endpoint while the attack is active, serving the previous discovery result so targets stay visible. Use `WRITE` mode if you need discovery to keep probing the instance during the attack.
 
 #### Limit MaxMemory
 - **ID**: `com.steadybit.extension_redis.instance.maxmemory-limit`
