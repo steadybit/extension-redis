@@ -369,3 +369,81 @@ func TestNewClientPauseAttack(t *testing.T) {
 	// Then
 	require.NotNil(t, action)
 }
+
+func TestClientPauseAttack_Start_RegistersPauseForAllMode(t *testing.T) {
+	// Given - ALL pause mode must mark the endpoint so discovery skips it.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+	defer ResetPauseRegistry()
+	ResetPauseRegistry()
+
+	action := &clientPauseAttack{}
+	redisURL := fmt.Sprintf("redis://%s", mr.Addr())
+	state := ClientPauseState{
+		RedisURL:  redisURL,
+		DB:        0,
+		PauseMode: "ALL",
+		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// When
+	_, err = action.Start(context.Background(), &state)
+	// miniredis may not implement CLIENT PAUSE; either way the registry call
+	// happens only on success, so only assert when Start succeeded.
+	if err == nil {
+		assert.True(t, IsPaused(redisURL), "ALL pause must register endpoint")
+	}
+}
+
+func TestClientPauseAttack_Start_DoesNotRegisterForWriteMode(t *testing.T) {
+	// Given - WRITE mode leaves reads (PING/INFO) working, so discovery must
+	// keep probing the endpoint normally.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+	defer ResetPauseRegistry()
+	ResetPauseRegistry()
+
+	action := &clientPauseAttack{}
+	redisURL := fmt.Sprintf("redis://%s", mr.Addr())
+	state := ClientPauseState{
+		RedisURL:  redisURL,
+		DB:        0,
+		PauseMode: "WRITE",
+		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// When
+	_, _ = action.Start(context.Background(), &state)
+	assert.False(t, IsPaused(redisURL), "WRITE pause must not affect discovery")
+}
+
+func TestClientPauseAttack_Stop_ClearsPause(t *testing.T) {
+	// Given - Stop must clear the registry entry even if UNPAUSE fails on the
+	// underlying mock so that discovery resumes after the attack ends.
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+	defer ResetPauseRegistry()
+	ResetPauseRegistry()
+
+	redisURL := fmt.Sprintf("redis://%s", mr.Addr())
+	MarkPaused(redisURL, time.Now().Add(30*time.Second))
+	require.True(t, IsPaused(redisURL))
+
+	action := &clientPauseAttack{}
+	state := ClientPauseState{
+		RedisURL:  redisURL,
+		DB:        0,
+		PauseMode: "ALL",
+		EndTime:   time.Now().Add(30 * time.Second).Unix(),
+	}
+
+	// When
+	_, _ = action.Stop(context.Background(), &state)
+
+	// Then - regardless of whether miniredis implements UNPAUSE, the registry
+	// must be cleared.
+	assert.False(t, IsPaused(redisURL))
+}

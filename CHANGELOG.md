@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- fix: skip Redis instance/database discovery for endpoints with an active `Pause Clients` attack in `ALL` mode. `CLIENT PAUSE ALL` is server-wide and exempts no client, so the extension's own discovery connection was timing out; affected endpoints now serve the last successful discovery result until the pause expires or is stopped.
+
 ## v1.1.2
 
 - Bump Go to 1.26.3

@@ -45,7 +45,7 @@ func (a *clientPauseAttack) Describe() action_kit_api.ActionDescription {
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.instance.client-pause",
 		Label:       "Pause Clients",
-		Description: "Suspends all client command processing for a duration using CLIENT PAUSE. Can pause all commands or only write commands. Clients automatically resume when the pause expires. Combine with Latency Check to verify application timeout handling.",
+		Description: "Suspends all client command processing for a duration using CLIENT PAUSE. Can pause all commands or only write commands. Clients automatically resume when the pause expires. Combine with Latency Check to verify application timeout handling. Note: CLIENT PAUSE ALL also halts the extension's own discovery client, since Redis has no client-exemption mechanism; the extension automatically skips discovery for the affected endpoint while ALL pause is active and resumes once the attack ends (use WRITE mode if you need discovery to keep running).",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        new(redisIcon),
 		TargetSelection: new(action_kit_api.TargetSelection{
@@ -173,6 +173,13 @@ func (a *clientPauseAttack) Start(ctx context.Context, state *ClientPauseState) 
 		}
 	}
 
+	// CLIENT PAUSE ALL stalls every connection, including the extension's own
+	// discovery client. Tell the discovery loop to skip this endpoint until the
+	// pause expires; WRITE mode permits reads so we leave discovery alone.
+	if state.PauseMode == "ALL" {
+		MarkPaused(state.RedisURL, time.Unix(state.EndTime, 0))
+	}
+
 	return &action_kit_api.StartResult{
 		Messages: new([]action_kit_api.Message{
 			{
@@ -201,6 +208,11 @@ func (a *clientPauseAttack) Status(ctx context.Context, state *ClientPauseState)
 }
 
 func (a *clientPauseAttack) Stop(ctx context.Context, state *ClientPauseState) (*action_kit_api.StopResult, error) {
+	// Clear the discovery skip marker regardless of outcome below — if Stop is
+	// reached the attack is ending one way or another, so let discovery probe
+	// again next cycle.
+	defer ClearPause(state.RedisURL)
+
 	unpauseNode := func(ctx context.Context, nodeClient *redis.Client, addr string) error {
 		return nodeClient.Do(ctx, "CLIENT", "UNPAUSE").Err()
 	}
