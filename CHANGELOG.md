@@ -1,8 +1,9 @@
 # Changelog
 
-## Unreleased
+## v1.1.3
 
-- fix: skip Redis instance/database discovery for endpoints with an active `Pause Clients` attack in `ALL` mode. `CLIENT PAUSE ALL` is server-wide and exempts no client, so the extension's own discovery connection was timing out; affected endpoints now serve the last successful discovery result until the pause expires or is stopped.
+- Support discovery group attribute via `STEADYBIT_EXTENSION_DISCOVERY_GROUP` env var (or `discovery.group` Helm value) — when set, the extension adds `steadybit.group=<value>` to every discovered target
+- Update dependencies
 
 ## v1.1.2
 
