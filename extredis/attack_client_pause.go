@@ -18,13 +18,21 @@ import (
 	"github.com/steadybit/extension-redis/config"
 )
 
+// pauseMode is the only mode this attack issues. We never use CLIENT PAUSE ALL
+// because Redis applies the pause check to every non-master command — including
+// CLIENT UNPAUSE itself — so an ALL pause cannot be aborted early and the
+// extension's own discovery probes also time out for the duration of the
+// attack. WRITE mode stalls only `is_may_replicate_command` data writes, which
+// leaves connection-management commands (UNPAUSE) and read probes (PING, INFO)
+// working: the attack stays reversible and discovery is unaffected.
+const pauseMode = "WRITE"
+
 type clientPauseAttack struct{}
 
 type ClientPauseState struct {
 	RedisURL    string `json:"redisUrl"`
 	Password    string `json:"password"`
 	DB          int    `json:"db"`
-	PauseMode   string `json:"pauseMode"`
 	EndTime     int64  `json:"endTime"`
 	ClusterMode bool   `json:"clusterMode"`
 }
@@ -44,8 +52,8 @@ func (a *clientPauseAttack) NewEmptyState() ClientPauseState {
 func (a *clientPauseAttack) Describe() action_kit_api.ActionDescription {
 	return action_kit_api.ActionDescription{
 		Id:          "com.steadybit.extension_redis.instance.client-pause",
-		Label:       "Pause Clients",
-		Description: "Suspends all client command processing for a duration using CLIENT PAUSE. Can pause all commands or only write commands. Clients automatically resume when the pause expires. Combine with Latency Check to verify application timeout handling. Note: CLIENT PAUSE ALL also halts the extension's own discovery client, since Redis has no client-exemption mechanism; the extension automatically skips discovery for the affected endpoint while ALL pause is active and resumes once the attack ends (use WRITE mode if you need discovery to keep running).",
+		Label:       "Pause Write Clients",
+		Description: "Suspends write command processing on the target Redis instance using CLIENT PAUSE WRITE. Reads (including the extension's own discovery probes) continue to flow, and the attack is fully reversible — CLIENT UNPAUSE works because Redis only blocks data-writing commands during a WRITE pause. Combine with Latency Check to verify application timeout handling on write paths.",
 		Version:     extbuild.GetSemverVersionStringOrUnknown(),
 		Icon:        new(redisIcon),
 		TargetSelection: new(action_kit_api.TargetSelection{
@@ -66,28 +74,10 @@ func (a *clientPauseAttack) Describe() action_kit_api.ActionDescription {
 			{
 				Name:         "duration",
 				Label:        "Duration",
-				Description:  new("How long to pause client connections"),
+				Description:  new("How long to pause write commands"),
 				Type:         action_kit_api.ActionParameterTypeDuration,
 				DefaultValue: new("30s"),
 				Required:     new(true),
-			},
-			{
-				Name:         "pauseMode",
-				Label:        "Pause Mode",
-				Description:  new("WRITE pauses only write commands, ALL pauses all commands"),
-				Type:         action_kit_api.ActionParameterTypeString,
-				DefaultValue: new("ALL"),
-				Required:     new(true),
-				Options: new([]action_kit_api.ParameterOption{
-					action_kit_api.ExplicitParameterOption{
-						Label: "All Commands",
-						Value: "ALL",
-					},
-					action_kit_api.ExplicitParameterOption{
-						Label: "Write Commands Only",
-						Value: "WRITE",
-					},
-				}),
 			},
 		},
 	}
@@ -100,15 +90,9 @@ func (a *clientPauseAttack) Prepare(ctx context.Context, state *ClientPauseState
 	}
 
 	duration := extutil.ToInt64(request.Config["duration"]) / 1000 // Convert ms to seconds
-	pauseMode := extutil.ToString(request.Config["pauseMode"])
-
-	if pauseMode != "ALL" && pauseMode != "WRITE" {
-		pauseMode = "ALL"
-	}
 
 	state.RedisURL = redisURL[0]
 	state.DB = 0
-	state.PauseMode = pauseMode
 	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
 
 	endpoint := config.GetEndpointByURL(state.RedisURL)
@@ -142,14 +126,7 @@ func (a *clientPauseAttack) Start(ctx context.Context, state *ClientPauseState) 
 			return fmt.Errorf("failed to ping Redis: %w", err)
 		}
 
-		args := []any{"PAUSE", pauseDurationMs}
-		if state.PauseMode == "WRITE" {
-			args = append(args, "WRITE")
-		} else {
-			args = append(args, "ALL")
-		}
-
-		if err := nodeClient.Do(ctx, append([]any{"CLIENT"}, args...)...).Err(); err != nil {
+		if err := nodeClient.Do(ctx, "CLIENT", "PAUSE", pauseDurationMs, pauseMode).Err(); err != nil {
 			return fmt.Errorf("failed to execute CLIENT PAUSE: %w", err)
 		}
 		return nil
@@ -173,18 +150,11 @@ func (a *clientPauseAttack) Start(ctx context.Context, state *ClientPauseState) 
 		}
 	}
 
-	// CLIENT PAUSE ALL stalls every connection, including the extension's own
-	// discovery client. Tell the discovery loop to skip this endpoint until the
-	// pause expires; WRITE mode permits reads so we leave discovery alone.
-	if state.PauseMode == "ALL" {
-		MarkPaused(state.RedisURL, time.Unix(state.EndTime, 0))
-	}
-
 	return &action_kit_api.StartResult{
 		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Paused Redis clients (mode: %s) for %d ms on %d node(s)", state.PauseMode, pauseDurationMs, nodeCount),
+				Message: fmt.Sprintf("Paused Redis write commands for %d ms on %d node(s)", pauseDurationMs, nodeCount),
 			},
 		}),
 	}, nil
@@ -201,18 +171,13 @@ func (a *clientPauseAttack) Status(ctx context.Context, state *ClientPauseState)
 		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Client pause active (mode: %s), %d seconds remaining", state.PauseMode, remainingSeconds),
+				Message: fmt.Sprintf("Write-pause active, %d seconds remaining", remainingSeconds),
 			},
 		}),
 	}, nil
 }
 
 func (a *clientPauseAttack) Stop(ctx context.Context, state *ClientPauseState) (*action_kit_api.StopResult, error) {
-	// Clear the discovery skip marker regardless of outcome below — if Stop is
-	// reached the attack is ending one way or another, so let discovery probe
-	// again next cycle.
-	defer ClearPause(state.RedisURL)
-
 	unpauseNode := func(ctx context.Context, nodeClient *redis.Client, addr string) error {
 		return nodeClient.Do(ctx, "CLIENT", "UNPAUSE").Err()
 	}
@@ -236,7 +201,7 @@ func (a *clientPauseAttack) Stop(ctx context.Context, state *ClientPauseState) (
 		Messages: new([]action_kit_api.Message{
 			{
 				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: "Executed CLIENT UNPAUSE, clients resumed",
+				Message: "Executed CLIENT UNPAUSE, write commands resumed",
 			},
 		}),
 	}, nil

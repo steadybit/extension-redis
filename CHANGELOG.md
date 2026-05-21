@@ -2,7 +2,7 @@
 
 ## Unreleased
 
-- fix: skip Redis instance/database discovery for endpoints with an active `Pause Clients` attack in `ALL` mode. `CLIENT PAUSE ALL` is server-wide and exempts no client, so the extension's own discovery connection was timing out; affected endpoints now serve the last successful discovery result until the pause expires or is stopped.
+- breaking: the `Pause Clients` attack now always issues `CLIENT PAUSE ... WRITE` and the `pauseMode` parameter has been removed. `CLIENT PAUSE ALL` could not be aborted early (Redis blocks `CLIENT UNPAUSE` itself under an active ALL pause) and also stalled the extension's own discovery probes for the entire duration. Pausing only writes keeps the attack fully reversible via `CLIENT UNPAUSE` and lets discovery (PING/INFO) keep running. The attack has been relabeled "Pause Write Clients".
 
 ## v1.1.2
 
