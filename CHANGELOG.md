@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v1.1.4
 
 - breaking: the `Pause Clients` attack now always issues `CLIENT PAUSE ... WRITE` and the `pauseMode` parameter has been removed. `CLIENT PAUSE ALL` could not be aborted early (Redis blocks `CLIENT UNPAUSE` itself under an active ALL pause) and also stalled the extension's own discovery probes for the entire duration. Pausing only writes keeps the attack fully reversible via `CLIENT UNPAUSE` and lets discovery (PING/INFO) keep running. The attack has been relabeled "Pause Write Clients".
 
