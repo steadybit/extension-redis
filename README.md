@@ -202,40 +202,9 @@ docker run -d \
   ghcr.io/steadybit/extension-redis:latest
 ```
 
-## Development
+## Contributing
 
-### Prerequisites
-
-- Go 1.25+
-- Redis instance for testing
-- Docker (for demo environment)
-
-### Build
-
-```bash
-make build
-```
-
-### Test
-
-```bash
-# Unit tests only
-go test ./clients/... ./config/... ./extredis/... -v
-
-# All tests including e2e (requires minikube)
-make test
-```
-
-### Run locally
-
-```bash
-# Start Redis
-./scripts/start-redis.sh
-
-# Run extension
-export STEADYBIT_EXTENSION_ENDPOINTS_JSON='[{"url":"redis://localhost:6379","password":"dev-password"}]'
-make run
-```
+See [CONTRIBUTING.md](./CONTRIBUTING.md) for build prerequisites, Makefile targets, and the local development workflow.
 
 ## License
 
