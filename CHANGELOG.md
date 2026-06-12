@@ -1,5 +1,13 @@
 # Changelog
 
+## v1.1.5
+
+- chore(deps): bump alpine from 3.23 to 3.24
+- chore(deps): bump github.com/redis/go-redis/v9 from 9.19.0 to 9.20.0
+- chore(deps): bump github.com/redis/go-redis/v9 from 9.20.0 to 9.20.1
+- chore: update to go 1.26.4
+- feat: add weekly auto patch-release workflow
+
 ## v1.1.4
 
 - breaking: the `Pause Clients` attack now always issues `CLIENT PAUSE ... WRITE` and the `pauseMode` parameter has been removed. `CLIENT PAUSE ALL` could not be aborted early (Redis blocks `CLIENT UNPAUSE` itself under an active ALL pause) and also stalled the extension's own discovery probes for the entire duration. Pausing only writes keeps the attack fully reversible via `CLIENT UNPAUSE` and lets discovery (PING/INFO) keep running. The attack has been relabeled "Pause Write Clients".
