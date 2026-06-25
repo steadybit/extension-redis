@@ -93,7 +93,8 @@ func ValidateConfiguration() {
 func SanitizeRedisURL(rawURL string) string {
 	parsed, err := url.Parse(rawURL)
 	if err != nil {
-		return rawURL
+		// Never return the raw URL here: it may contain credentials and is published/logged.
+		return "[unparseable-url]"
 	}
 	parsed.User = nil
 	return parsed.String()
