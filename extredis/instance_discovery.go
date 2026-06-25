@@ -200,7 +200,7 @@ func buildInstanceTarget(endpoint *config.RedisEndpoint, host, port string, info
 	}
 
 	attributes := map[string][]string{
-		AttrRedisURL:  {endpoint.URL},
+		AttrRedisURL:  {config.SanitizeRedisURL(endpoint.URL)},
 		AttrRedisHost: {host},
 		AttrRedisPort: {port},
 		AttrRedisName: {name},
