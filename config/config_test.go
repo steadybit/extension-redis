@@ -94,10 +94,27 @@ func TestGetEndpointByURL_ExactMatchOnly(t *testing.T) {
 	assert.Equal(t, "secondary", got2.Name)
 }
 
-func TestMaskURL(t *testing.T) {
-	// Simple test - maskURL currently returns the URL as-is
-	url := "redis://localhost:6379"
-	assert.Equal(t, url, maskURL(url))
+func TestSanitizeRedisURL(t *testing.T) {
+	// Credentials are stripped; scheme, host, port and database path are preserved.
+	assert.Equal(t, "redis://localhost:6379", SanitizeRedisURL("redis://:secret@localhost:6379"))
+	assert.Equal(t, "redis://localhost:6379", SanitizeRedisURL("redis://alice:s3cr3t@localhost:6379"))
+	assert.Equal(t, "rediss://host:6380/2", SanitizeRedisURL("rediss://alice:pw@host:6380/2"))
+	// A URL without credentials is unchanged.
+	assert.Equal(t, "redis://localhost:6379", SanitizeRedisURL("redis://localhost:6379"))
+}
+
+func TestGetEndpointByURL_MatchesCredentialStrippedURL(t *testing.T) {
+	// Given an endpoint configured with credentials embedded in its URL...
+	Config.Endpoints = []RedisEndpoint{
+		{URL: "redis://alice:s3cr3t@redis-a.local:6379", Name: "redis-a"},
+	}
+
+	// ...a lookup by the credential-stripped URL (as published to the platform) still resolves it.
+	got := GetEndpointByURL("redis://redis-a.local:6379")
+
+	assert.NotNil(t, got)
+	assert.Equal(t, "redis-a", got.Name)
+	assert.Equal(t, "redis://alice:s3cr3t@redis-a.local:6379", got.URL)
 }
 
 func TestRedisEndpoint_Fields(t *testing.T) {

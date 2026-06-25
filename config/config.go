@@ -6,6 +6,8 @@ package config
 
 import (
 	"encoding/json"
+	"net/url"
+
 	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
 )
@@ -77,22 +79,35 @@ func ValidateConfiguration() {
 		}
 		log.Info().
 			Int("index", i).
-			Str("url", maskURL(endpoint.URL)).
+			Str("url", SanitizeRedisURL(endpoint.URL)).
 			Str("name", endpoint.Name).
 			Int("db", endpoint.DB).
 			Msg("Configured Redis endpoint")
 	}
 }
 
-func maskURL(url string) string {
-	// Simple masking - replace password in URL if present
-	return url
+// SanitizeRedisURL strips embedded credentials (userinfo) from a Redis URL so it can be safely
+// published as a target attribute or used as a metric label. Scheme, host, port and path
+// (database) are preserved. The full credentials remain in the endpoint configuration and are
+// used for the actual connection.
+func SanitizeRedisURL(rawURL string) string {
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		// Never return the raw URL here: it may contain credentials and is published/logged.
+		return "[unparseable-url]"
+	}
+	parsed.User = nil
+	return parsed.String()
 }
 
-func GetEndpointByURL(url string) *RedisEndpoint {
-	for _, endpoint := range Config.Endpoints {
-		if endpoint.URL == url {
-			return &endpoint
+// GetEndpointByURL resolves the configured endpoint for a (possibly credential-stripped) URL.
+// Both sides are sanitized before comparison so a published, credential-free target URL still
+// resolves to its endpoint configuration.
+func GetEndpointByURL(rawURL string) *RedisEndpoint {
+	target := SanitizeRedisURL(rawURL)
+	for i := range Config.Endpoints {
+		if SanitizeRedisURL(Config.Endpoints[i].URL) == target {
+			return &Config.Endpoints[i]
 		}
 	}
 	return nil

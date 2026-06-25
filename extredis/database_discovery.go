@@ -156,7 +156,7 @@ func buildDatabaseTarget(host, port, instanceName, redisURL, dbIndex, dbName str
 		TargetType: TargetTypeDatabase,
 		Label:      fmt.Sprintf("%s/%s", instanceName, dbName),
 		Attributes: map[string][]string{
-			AttrRedisURL:      {redisURL},
+			AttrRedisURL:      {config.SanitizeRedisURL(redisURL)},
 			AttrRedisHost:     {host},
 			AttrRedisPort:     {port},
 			AttrRedisName:     {instanceName},

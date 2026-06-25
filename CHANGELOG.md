@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- fix: strip credentials from Redis endpoint URLs before publishing them as target attributes/metric labels and before logging them, so a password embedded in a `redis://user:pass@host` URL is no longer exposed to the platform or logs (the full credentials remain in the endpoint configuration and are still used to connect)
+
 ## v1.1.6
 
 - chore(deps): bump github.com/steadybit/extension-kit

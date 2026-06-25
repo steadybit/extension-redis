@@ -40,8 +40,8 @@ func FetchTargetsPerEndpoint(handler func(endpoint *config.RedisEndpoint) ([]dis
 	for _, endpoint := range config.Config.Endpoints {
 		targets, err := handler(&endpoint)
 		if err != nil {
-			// Log error but continue with other endpoints
-			log.Warn().Err(err).Msgf("Error discovering targets for endpoint %s", endpoint.URL)
+			// Log error but continue with other endpoints (sanitize the URL so any embedded credentials are not logged)
+			log.Warn().Err(err).Msgf("Error discovering targets for endpoint %s", config.SanitizeRedisURL(endpoint.URL))
 			continue
 		}
 		allTargets = append(allTargets, targets...)
