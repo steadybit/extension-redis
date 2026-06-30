@@ -331,7 +331,13 @@ func (a *maxmemoryLimitAttack) Stop(ctx context.Context, state *MaxmemoryLimitSt
 	}
 
 	if state.ClusterMode && endpoint != nil {
-		_ = clients.ForEachMaster(ctx, endpoint, restoreNode)
+		// ForEachMaster reports cluster-enumeration and per-node client-creation
+		// failures that restoreNode (which only records ConfigSet errors) never sees.
+		// Without capturing it, an unreachable cluster during restore would leave
+		// maxmemory altered yet report a successful stop.
+		if err := clients.ForEachMaster(ctx, endpoint, restoreNode); err != nil {
+			restoreErrors = append(restoreErrors, err.Error())
+		}
 	} else {
 		client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 		if err != nil {

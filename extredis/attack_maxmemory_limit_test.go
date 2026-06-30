@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
+	"github.com/steadybit/extension-redis/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -301,6 +302,32 @@ func TestMaxmemoryLimitAttack_Stop_WithRestoreErrors(t *testing.T) {
 
 	// Then - Stop now returns a Go error when restore fails
 	require.Error(t, err)
+}
+
+func TestMaxmemoryLimitAttack_Stop_ClusterEnumerationError_NotSwallowed(t *testing.T) {
+	// Given - a cluster-mode stop whose seed endpoint is unreachable, so ForEachMaster
+	// cannot enumerate the masters and restoreNode (which only records ConfigSet errors)
+	// never runs. The enumeration failure must surface as a Stop error rather than a
+	// silently successful restore that leaves maxmemory altered.
+	const seedURL = "redis://127.0.0.1:1"
+	config.Config.Endpoints = []config.RedisEndpoint{{URL: seedURL, ClusterMode: "cluster"}}
+	t.Cleanup(func() { config.Config.Endpoints = nil })
+
+	action := &maxmemoryLimitAttack{}
+	state := MaxmemoryLimitState{
+		RedisURL:          seedURL,
+		ClusterMode:       true,
+		DB:                0,
+		OriginalMaxmemory: "0",
+		OriginalPolicy:    "noeviction",
+	}
+
+	// When
+	_, err := action.Stop(context.Background(), &state)
+
+	// Then
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "restore failed")
 }
 
 func TestNewMaxmemoryLimitAttack(t *testing.T) {
