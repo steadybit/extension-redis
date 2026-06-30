@@ -322,16 +322,18 @@ func (a *maxmemoryLimitAttack) Stop(ctx context.Context, state *MaxmemoryLimitSt
 			origPolicy = v
 		}
 
+		// Name only what failed, not the node: in cluster mode ForEachMaster already
+		// prefixes "node <addr>:", and in standalone mode there is a single node.
 		var errs []error
 		if err := nodeClient.ConfigSet(ctx, "maxmemory", origMaxmem).Err(); err != nil {
 			log.Warn().Err(err).Str("addr", addr).Str("value", origMaxmem).Msg("Failed to restore maxmemory")
-			errs = append(errs, fmt.Errorf("maxmemory on %s: %w", addr, err))
+			errs = append(errs, fmt.Errorf("maxmemory: %w", err))
 		}
 
 		if state.NewPolicy != "keep" {
 			if err := nodeClient.ConfigSet(ctx, "maxmemory-policy", origPolicy).Err(); err != nil {
 				log.Warn().Err(err).Str("addr", addr).Str("value", origPolicy).Msg("Failed to restore maxmemory-policy")
-				errs = append(errs, fmt.Errorf("policy on %s: %w", addr, err))
+				errs = append(errs, fmt.Errorf("maxmemory-policy: %w", err))
 			}
 		}
 		return errors.Join(errs...)
