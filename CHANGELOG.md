@@ -3,6 +3,7 @@
 ## Unreleased
 
 - fix: strip credentials from Redis endpoint URLs before publishing them as target attributes/metric labels and before logging them, so a password embedded in a `redis://user:pass@host` URL is no longer exposed to the platform or logs (the full credentials remain in the endpoint configuration and are still used to connect)
+- fix: report a failed stop for the maxmemory-limit attack when the cluster cannot be reached during restore, instead of silently reporting success while the target's `maxmemory` is left altered
 
 ## v1.1.6
 
