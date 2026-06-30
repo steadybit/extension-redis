@@ -6,6 +6,7 @@ package extredis
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -304,8 +305,13 @@ func (a *maxmemoryLimitAttack) Status(ctx context.Context, state *MaxmemoryLimit
 
 func (a *maxmemoryLimitAttack) Stop(ctx context.Context, state *MaxmemoryLimitState) (*action_kit_api.StopResult, error) {
 	endpoint := config.GetEndpointByURL(state.RedisURL)
-	var restoreErrors []string
 
+	// restoreNode returns its CONFIG SET failures rather than recording them out of
+	// band, so every restore failure flows through a single error channel: the value
+	// returned by ForEachMaster (cluster) or by restoreNode directly (standalone).
+	// ForEachMaster additionally folds in cluster-enumeration and per-node
+	// client-creation failures, so an unreachable cluster can no longer report a
+	// successful stop while maxmemory is left altered.
 	restoreNode := func(ctx context.Context, nodeClient *redis.Client, addr string) error {
 		origMaxmem := state.OriginalMaxmemory
 		origPolicy := state.OriginalPolicy
@@ -316,39 +322,35 @@ func (a *maxmemoryLimitAttack) Stop(ctx context.Context, state *MaxmemoryLimitSt
 			origPolicy = v
 		}
 
+		var errs []error
 		if err := nodeClient.ConfigSet(ctx, "maxmemory", origMaxmem).Err(); err != nil {
-			restoreErrors = append(restoreErrors, fmt.Sprintf("maxmemory on %s: %v", addr, err))
 			log.Warn().Err(err).Str("addr", addr).Str("value", origMaxmem).Msg("Failed to restore maxmemory")
+			errs = append(errs, fmt.Errorf("maxmemory on %s: %w", addr, err))
 		}
 
 		if state.NewPolicy != "keep" {
 			if err := nodeClient.ConfigSet(ctx, "maxmemory-policy", origPolicy).Err(); err != nil {
-				restoreErrors = append(restoreErrors, fmt.Sprintf("policy on %s: %v", addr, err))
 				log.Warn().Err(err).Str("addr", addr).Str("value", origPolicy).Msg("Failed to restore maxmemory-policy")
+				errs = append(errs, fmt.Errorf("policy on %s: %w", addr, err))
 			}
 		}
-		return nil
+		return errors.Join(errs...)
 	}
 
+	var restoreErr error
 	if state.ClusterMode && endpoint != nil {
-		// ForEachMaster reports cluster-enumeration and per-node client-creation
-		// failures that restoreNode (which only records ConfigSet errors) never sees.
-		// Without capturing it, an unreachable cluster during restore would leave
-		// maxmemory altered yet report a successful stop.
-		if err := clients.ForEachMaster(ctx, endpoint, restoreNode); err != nil {
-			restoreErrors = append(restoreErrors, err.Error())
-		}
+		restoreErr = clients.ForEachMaster(ctx, endpoint, restoreNode)
 	} else {
 		client, err := clients.GetRedisClient(state.RedisURL, state.Password, state.DB)
 		if err != nil {
 			return nil, fmt.Errorf("failed to create Redis client for restore: %w", err)
 		}
-		_ = restoreNode(ctx, client, client.Options().Addr)
+		restoreErr = restoreNode(ctx, client, client.Options().Addr)
 	}
 
-	if len(restoreErrors) > 0 {
-		log.Error().Strs("errors", restoreErrors).Msg("Failed to restore maxmemory settings")
-		return nil, fmt.Errorf("restore failed: %v", restoreErrors)
+	if restoreErr != nil {
+		log.Error().Err(restoreErr).Msg("Failed to restore maxmemory settings")
+		return nil, fmt.Errorf("restore failed: %w", restoreErr)
 	}
 
 	return &action_kit_api.StopResult{
