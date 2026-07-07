@@ -1,9 +1,20 @@
 # Changelog
 
-## Unreleased
+## v1.1.7
 
-- fix: strip credentials from Redis endpoint URLs before publishing them as target attributes/metric labels and before logging them, so a password embedded in a `redis://user:pass@host` URL is no longer exposed to the platform or logs (the full credentials remain in the endpoint configuration and are still used to connect)
+- Merge pull request #31 from steadybit/feat/add-claude-workflows
+- chore(deps): bump github.com/redis/go-redis/v9 from 9.20.1 to 9.21.0
+- chore(deps): bump github.com/steadybit/action-kit/go/action_kit_sdk
+- chore(deps): bump github.com/steadybit/discovery-kit/go/discovery_kit_sdk
+- chore(deps): bump github.com/steadybit/event-kit/go/event_kit_api
+- chore(deps): bump github.com/steadybit/extension-kit
+- chore: silence SonarQube finding on secrets: inherit in Claude workflows
+- fix: avoid duplicating the node address in cluster restore errors
 - fix: report a failed stop for the maxmemory-limit attack when the cluster cannot be reached during restore, instead of silently reporting success while the target's `maxmemory` is left altered
+- fix: report failed maxmemory restore when the cluster is unreachable
+- fix: stop leaking Redis credentials embedded in endpoint URLs (#32)
+- fix: strip credentials from Redis endpoint URLs before publishing them as target attributes/metric labels and before logging them, so a password embedded in a `redis://user:pass@host` URL is no longer exposed to the platform or logs (the full credentials remain in the endpoint configuration and are still used to connect)
+- refactor: collapse maxmemory restore onto a single error channel
 
 ## v1.1.6
 
