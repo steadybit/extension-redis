@@ -240,7 +240,7 @@ func (a *connectionCountCheck) Status(ctx context.Context, state *ConnectionCoun
 		Metrics:   new(metrics),
 	}
 
-	if state.FailEarly && thresholdViolation != "" {
+	if state.FailEarly && state.ThresholdExceeded {
 		result.Completed = true
 		result.Error = &action_kit_api.ActionKitError{
 			Title:  "Connection threshold exceeded",

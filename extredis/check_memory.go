@@ -241,7 +241,7 @@ func (a *memoryCheck) Status(ctx context.Context, state *MemoryCheckState) (*act
 	}
 
 	// Set error if threshold exceeded
-	if state.FailEarly && thresholdViolation != "" {
+	if state.FailEarly && state.ThresholdExceeded {
 		result.Completed = true
 		result.Error = &action_kit_api.ActionKitError{
 			Title:  "Memory threshold exceeded",

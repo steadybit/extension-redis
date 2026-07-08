@@ -240,7 +240,7 @@ func (a *latencyCheck) Status(ctx context.Context, state *LatencyCheckState) (*a
 	}
 
 	// Set error if threshold exceeded
-	if state.FailEarly && thresholdViolation != "" {
+	if state.FailEarly && state.ThresholdExceeded {
 		result.Completed = true
 		result.Error = &action_kit_api.ActionKitError{
 			Title:  "Latency threshold exceeded",

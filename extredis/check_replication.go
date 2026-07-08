@@ -293,7 +293,7 @@ func (a *replicationLagCheck) Status(ctx context.Context, state *ReplicationLagC
 		Metrics:   new(metrics),
 	}
 
-	if state.FailEarly && thresholdViolation != "" {
+	if state.FailEarly && state.ThresholdExceeded {
 		result.Completed = true
 		result.Error = &action_kit_api.ActionKitError{
 			Title:  "Replication check failed",
