@@ -49,6 +49,7 @@ func TestMemoryCheck_Describe(t *testing.T) {
 	assert.Contains(t, paramNames, "duration")
 	assert.Contains(t, paramNames, "maxMemoryPercent")
 	assert.Contains(t, paramNames, "maxMemoryBytes")
+	assert.Contains(t, paramNames, "failEarly")
 }
 
 func TestMemoryCheck_Prepare_MissingURL(t *testing.T) {

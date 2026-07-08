@@ -24,6 +24,7 @@ type LatencyCheckState struct {
 	MaxLatencyMs      float64 `json:"maxLatencyMs"`
 	EndTime           int64   `json:"endTime"`
 	ThresholdExceeded bool    `json:"thresholdExceeded"`
+	FailEarly         bool    `json:"failEarly"`
 	MaxObservedMs     float64 `json:"maxObservedMs"`
 	TotalPings        int     `json:"totalPings"`
 	FailedPings       int     `json:"failedPings"`
@@ -78,6 +79,7 @@ func (a *latencyCheck) Describe() action_kit_api.ActionDescription {
 				DefaultValue: new("100"),
 				Required:     new(true),
 			},
+			failEarlyParameter,
 		},
 		Status: new(action_kit_api.MutatingEndpointReferenceWithCallInterval{
 			CallInterval: new("1s"),
@@ -137,6 +139,8 @@ func (a *latencyCheck) Prepare(ctx context.Context, state *LatencyCheckState, re
 	state.MaxLatencyMs = maxLatencyMs
 	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
 	state.ThresholdExceeded = false
+	// Defaults to false to preserve the previous behavior (threshold breach reported only at the end).
+	state.FailEarly = extutil.ToBool(request.Config["failEarly"])
 	state.MaxObservedMs = 0
 	state.TotalPings = 0
 	state.FailedPings = 0
@@ -235,8 +239,15 @@ func (a *latencyCheck) Status(ctx context.Context, state *LatencyCheckState) (*a
 		Metrics:   new(metrics),
 	}
 
-	// Set error if threshold exceeded at end
-	if completed && state.ThresholdExceeded {
+	// Set error if threshold exceeded
+	if state.FailEarly && thresholdViolation != "" {
+		result.Completed = true
+		result.Error = &action_kit_api.ActionKitError{
+			Title:  "Latency threshold exceeded",
+			Detail: new(thresholdViolation),
+			Status: extutil.Ptr(action_kit_api.Failed),
+		}
+	} else if completed && state.ThresholdExceeded {
 		result.Error = &action_kit_api.ActionKitError{
 			Title:  "Latency threshold exceeded",
 			Detail: new(fmt.Sprintf("Max observed latency: %.2fms (threshold: %.0fms)", state.MaxObservedMs, state.MaxLatencyMs)),

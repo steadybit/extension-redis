@@ -26,6 +26,7 @@ type MemoryCheckState struct {
 	MaxMemoryBytes    int64   `json:"maxMemoryBytes"`
 	EndTime           int64   `json:"endTime"`
 	ThresholdExceeded bool    `json:"thresholdExceeded"`
+	FailEarly         bool    `json:"failEarly"`
 	MaxObserved       int64   `json:"maxObserved"`
 }
 
@@ -87,6 +88,7 @@ func (a *memoryCheck) Describe() action_kit_api.ActionDescription {
 				Required:     new(false),
 				Advanced:     new(true),
 			},
+			failEarlyParameter,
 		},
 		Status: new(action_kit_api.MutatingEndpointReferenceWithCallInterval{
 			CallInterval: new("2s"),
@@ -127,6 +129,8 @@ func (a *memoryCheck) Prepare(ctx context.Context, state *MemoryCheckState, requ
 	state.MaxMemoryBytes = maxMemoryBytes
 	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
 	state.ThresholdExceeded = false
+	// Defaults to false to preserve the previous behavior (threshold breach reported only at the end).
+	state.FailEarly = extutil.ToBool(request.Config["failEarly"])
 	state.MaxObserved = 0
 
 	return nil, nil
@@ -236,8 +240,15 @@ func (a *memoryCheck) Status(ctx context.Context, state *MemoryCheckState) (*act
 		Metrics:   new(metrics),
 	}
 
-	// Set error if threshold exceeded at end
-	if completed && state.ThresholdExceeded {
+	// Set error if threshold exceeded
+	if state.FailEarly && thresholdViolation != "" {
+		result.Completed = true
+		result.Error = &action_kit_api.ActionKitError{
+			Title:  "Memory threshold exceeded",
+			Detail: new(thresholdViolation),
+			Status: extutil.Ptr(action_kit_api.Failed),
+		}
+	} else if completed && state.ThresholdExceeded {
 		result.Error = &action_kit_api.ActionKitError{
 			Title:  "Memory threshold exceeded",
 			Detail: new(thresholdViolation),

@@ -43,7 +43,7 @@ func TestReplicationLagCheck_Describe(t *testing.T) {
 
 	// Check parameters
 	require.NotNil(t, desc.Parameters)
-	require.Len(t, desc.Parameters, 3)
+	require.Len(t, desc.Parameters, 4)
 
 	paramNames := make([]string, len(desc.Parameters))
 	for i, p := range desc.Parameters {
@@ -52,6 +52,7 @@ func TestReplicationLagCheck_Describe(t *testing.T) {
 	assert.Contains(t, paramNames, "duration")
 	assert.Contains(t, paramNames, "maxLagSeconds")
 	assert.Contains(t, paramNames, "requireLinkUp")
+	assert.Contains(t, paramNames, "failEarly")
 }
 
 func TestReplicationLagCheck_Prepare_MissingURL(t *testing.T) {
