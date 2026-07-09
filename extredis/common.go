@@ -8,7 +8,6 @@ import (
 	"github.com/rs/zerolog/log"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/discovery-kit/go/discovery_kit_api"
-	"github.com/steadybit/extension-kit/extutil"
 	"github.com/steadybit/extension-redis/config"
 )
 
@@ -18,11 +17,11 @@ import (
 var failEarlyParameter = action_kit_api.ActionParameter{
 	Name:         "failEarly",
 	Label:        "Fail early",
-	Description:  extutil.Ptr("If enabled, the check fails as soon as the threshold is exceeded. If disabled (the default, matching the previous behavior), the check keeps monitoring for the whole duration and only fails at the end of the step."),
+	Description:  new("If enabled, the check fails as soon as the threshold is exceeded. If disabled (the default, matching the previous behavior), the check keeps monitoring for the whole duration and only fails at the end of the step."),
 	Type:         action_kit_api.ActionParameterTypeBoolean,
-	DefaultValue: extutil.Ptr("false"),
-	Advanced:     extutil.Ptr(true),
-	Required:     extutil.Ptr(false),
+	DefaultValue: new("false"),
+	Advanced:     new(true),
+	Required:     new(false),
 }
 
 const (
