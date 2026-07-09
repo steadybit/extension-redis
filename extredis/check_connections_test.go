@@ -43,7 +43,7 @@ func TestConnectionCountCheck_Describe(t *testing.T) {
 
 	// Check parameters
 	require.NotNil(t, desc.Parameters)
-	require.Len(t, desc.Parameters, 3)
+	require.Len(t, desc.Parameters, 4)
 
 	paramNames := make([]string, len(desc.Parameters))
 	for i, p := range desc.Parameters {
@@ -52,6 +52,7 @@ func TestConnectionCountCheck_Describe(t *testing.T) {
 	assert.Contains(t, paramNames, "duration")
 	assert.Contains(t, paramNames, "maxConnectionsPct")
 	assert.Contains(t, paramNames, "maxConnections")
+	assert.Contains(t, paramNames, "failEarly")
 }
 
 func TestConnectionCountCheck_Prepare_MissingURL(t *testing.T) {

@@ -43,7 +43,7 @@ func TestLatencyCheck_Describe(t *testing.T) {
 
 	// Check parameters
 	require.NotNil(t, desc.Parameters)
-	require.Len(t, desc.Parameters, 2)
+	require.Len(t, desc.Parameters, 3)
 
 	paramNames := make([]string, len(desc.Parameters))
 	for i, p := range desc.Parameters {
@@ -51,6 +51,7 @@ func TestLatencyCheck_Describe(t *testing.T) {
 	}
 	assert.Contains(t, paramNames, "duration")
 	assert.Contains(t, paramNames, "maxLatencyMs")
+	assert.Contains(t, paramNames, "failEarly")
 }
 
 func TestLatencyCheck_Prepare_MissingURL(t *testing.T) {

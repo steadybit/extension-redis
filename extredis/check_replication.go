@@ -27,6 +27,7 @@ type ReplicationLagCheckState struct {
 	RequireLinkUp     bool   `json:"requireLinkUp"`
 	EndTime           int64  `json:"endTime"`
 	ThresholdExceeded bool   `json:"thresholdExceeded"`
+	FailEarly         bool   `json:"failEarly"`
 	MaxObservedLag    int    `json:"maxObservedLag"`
 	LinkDownDetected  bool   `json:"linkDownDetected"`
 }
@@ -88,6 +89,7 @@ func (a *replicationLagCheck) Describe() action_kit_api.ActionDescription {
 				DefaultValue: new("true"),
 				Required:     new(false),
 			},
+			failEarlyParameter,
 		},
 		Status: new(action_kit_api.MutatingEndpointReferenceWithCallInterval{
 			CallInterval: new("2s"),
@@ -150,6 +152,8 @@ func (a *replicationLagCheck) Prepare(ctx context.Context, state *ReplicationLag
 	state.RequireLinkUp = requireLinkUp
 	state.EndTime = time.Now().Add(time.Duration(duration) * time.Second).Unix()
 	state.ThresholdExceeded = false
+	// Defaults to false to preserve the previous behavior (threshold breach reported only at the end).
+	state.FailEarly = extutil.ToBool(request.Config["failEarly"])
 	state.MaxObservedLag = 0
 	state.LinkDownDetected = false
 
@@ -289,7 +293,14 @@ func (a *replicationLagCheck) Status(ctx context.Context, state *ReplicationLagC
 		Metrics:   new(metrics),
 	}
 
-	if completed && state.ThresholdExceeded {
+	if state.FailEarly && state.ThresholdExceeded {
+		result.Completed = true
+		result.Error = &action_kit_api.ActionKitError{
+			Title:  "Replication check failed",
+			Detail: new(thresholdViolation),
+			Status: extutil.Ptr(action_kit_api.Failed),
+		}
+	} else if completed && state.ThresholdExceeded {
 		result.Error = &action_kit_api.ActionKitError{
 			Title:  "Replication check failed",
 			Detail: new(thresholdViolation),
