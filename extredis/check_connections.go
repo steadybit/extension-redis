@@ -62,7 +62,7 @@ func (a *connectionCountCheck) Describe() action_kit_api.ActionDescription {
 		Technology:  new("Redis"),
 		Category:    new("monitoring"),
 		Kind:        action_kit_api.Check,
-		TimeControl: action_kit_api.TimeControlExternal,
+		TimeControl: action_kit_api.TimeControlInternal,
 		Parameters: []action_kit_api.ActionParameter{
 			{
 				Name:         "duration",

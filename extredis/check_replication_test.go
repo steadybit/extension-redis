@@ -30,7 +30,7 @@ func TestReplicationLagCheck_Describe(t *testing.T) {
 	assert.Contains(t, desc.Description, "replication")
 	assert.Equal(t, TargetTypeInstance, desc.TargetSelection.TargetType)
 	assert.Equal(t, action_kit_api.Check, desc.Kind)
-	assert.Equal(t, action_kit_api.TimeControlExternal, desc.TimeControl)
+	assert.Equal(t, action_kit_api.TimeControlInternal, desc.TimeControl)
 
 	// Check status endpoint
 	require.NotNil(t, desc.Status)
