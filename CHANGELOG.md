@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- fix: the connection count, latency, memory and replication checks now use internal time control so a threshold breach is reliably reported at the end of the step. Previously they used external time control without a stop handler, so the end-of-step failure was never emitted and a breach only produced a warning (the check completed successfully even though its threshold was exceeded).
 - Add a "Fail early" option to the connection count, latency, memory and replication checks. When enabled, the check fails as soon as its threshold is exceeded instead of waiting for the end of the step. Disabled by default, matching the previous behavior of only reporting a threshold breach at the end.
 
 ## v1.1.7
