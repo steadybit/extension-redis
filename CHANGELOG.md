@@ -1,9 +1,14 @@
 # Changelog
 
-## Unreleased
+## v1.1.8
 
-- fix: the connection count, latency, memory and replication checks now use internal time control so a threshold breach is reliably reported at the end of the step. Previously they used external time control without a stop handler, so the end-of-step failure was never emitted and a breach only produced a warning (the check completed successfully even though its threshold was exceeded).
 - Add a "Fail early" option to the connection count, latency, memory and replication checks. When enabled, the check fails as soon as its threshold is exceeded instead of waiting for the end of the step. Disabled by default, matching the previous behavior of only reporting a threshold breach at the end.
+- chore(deps): bump go to 1.26.5 (#40)
+- ci: skip build on .trivyignore.yml-only changes [skip ci]
+- feat(checks): add fail early option (#39)
+- fix(checks): use internal time control so breaches fail at the end (#42)
+- fix: the connection count, latency, memory and replication checks now use internal time control so a threshold breach is reliably reported at the end of the step. Previously they used external time control without a stop handler, so the end-of-step failure was never emitted and a breach only produced a warning (the check completed successfully even though its threshold was exceeded).
+- refactor: register extension index via exthttp.RegisterRevisionedHandler (#41)
 
 ## v1.1.7
 
