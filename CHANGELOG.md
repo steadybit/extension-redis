@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.9
+
+- chore(deps): update dependencies
+
 ## v1.1.8
 
 - Add a "Fail early" option to the connection count, latency, memory and replication checks. When enabled, the check fails as soon as its threshold is exceeded instead of waiting for the end of the step. Disabled by default, matching the previous behavior of only reporting a threshold breach at the end.
