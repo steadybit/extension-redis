@@ -170,35 +170,34 @@ func (a *replicationLagCheck) Start(ctx context.Context, state *ReplicationLagCh
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
-	// Check if this is a replica
-	replInfo, err := clients.GetRedisInfo(ctx, client, "replication")
-	if err != nil {
-		return nil, fmt.Errorf("failed to get replication info: %w", err)
+	statusResult, err := replicationLagCheckStatus(ctx, state)
+	if statusResult == nil {
+		return nil, err
 	}
 
-	role := replInfo["role"]
-	if role == "master" {
-		return &action_kit_api.StartResult{
-			Messages: new([]action_kit_api.Message{
-				{
-					Level:   extutil.Ptr(action_kit_api.Warn),
-					Message: "This instance is a master, not a replica. Replication lag monitoring will show connected replicas count instead.",
-				},
-			}),
-		}, nil
+	messages := []action_kit_api.Message{
+		{
+			Level:   extutil.Ptr(action_kit_api.Info),
+			Message: fmt.Sprintf("Started monitoring replication lag (max: %ds, require link up: %t)", state.MaxLagSeconds, state.RequireLinkUp),
+		},
+	}
+	if statusResult.Messages != nil {
+		messages = append(messages, *statusResult.Messages...)
 	}
 
 	return &action_kit_api.StartResult{
-		Messages: new([]action_kit_api.Message{
-			{
-				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Started monitoring replication lag (max: %ds, require link up: %t)", state.MaxLagSeconds, state.RequireLinkUp),
-			},
-		}),
-	}, nil
+		Artifacts: statusResult.Artifacts,
+		Error:     statusResult.Error,
+		Messages:  new(messages),
+		Metrics:   statusResult.Metrics,
+	}, err
 }
 
 func (a *replicationLagCheck) Status(ctx context.Context, state *ReplicationLagCheckState) (*action_kit_api.StatusResult, error) {
+	return replicationLagCheckStatus(ctx, state)
+}
+
+func replicationLagCheckStatus(ctx context.Context, state *ReplicationLagCheckState) (*action_kit_api.StatusResult, error) {
 	now := time.Now()
 	completed := now.Unix() >= state.EndTime
 

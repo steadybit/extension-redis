@@ -159,17 +159,34 @@ func (a *latencyCheck) Start(ctx context.Context, state *LatencyCheckState) (*ac
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
+	statusResult, err := latencyCheckStatus(ctx, state)
+	if statusResult == nil {
+		return nil, err
+	}
+
+	messages := []action_kit_api.Message{
+		{
+			Level:   extutil.Ptr(action_kit_api.Info),
+			Message: fmt.Sprintf("Started monitoring Redis latency (max: %.0fms)", state.MaxLatencyMs),
+		},
+	}
+	if statusResult.Messages != nil {
+		messages = append(messages, *statusResult.Messages...)
+	}
+
 	return &action_kit_api.StartResult{
-		Messages: new([]action_kit_api.Message{
-			{
-				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: fmt.Sprintf("Started monitoring Redis latency (max: %.0fms)", state.MaxLatencyMs),
-			},
-		}),
-	}, nil
+		Artifacts: statusResult.Artifacts,
+		Error:     statusResult.Error,
+		Messages:  new(messages),
+		Metrics:   statusResult.Metrics,
+	}, err
 }
 
 func (a *latencyCheck) Status(ctx context.Context, state *LatencyCheckState) (*action_kit_api.StatusResult, error) {
+	return latencyCheckStatus(ctx, state)
+}
+
+func latencyCheckStatus(ctx context.Context, state *LatencyCheckState) (*action_kit_api.StatusResult, error) {
 	now := time.Now()
 	completed := now.Unix() >= state.EndTime
 

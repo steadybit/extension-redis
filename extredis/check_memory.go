@@ -147,17 +147,34 @@ func (a *memoryCheck) Start(ctx context.Context, state *MemoryCheckState) (*acti
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
+	statusResult, err := memoryCheckStatus(ctx, state)
+	if statusResult == nil {
+		return nil, err
+	}
+
+	messages := []action_kit_api.Message{
+		{
+			Level:   extutil.Ptr(action_kit_api.Info),
+			Message: "Started monitoring Redis memory usage",
+		},
+	}
+	if statusResult.Messages != nil {
+		messages = append(messages, *statusResult.Messages...)
+	}
+
 	return &action_kit_api.StartResult{
-		Messages: new([]action_kit_api.Message{
-			{
-				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: "Started monitoring Redis memory usage",
-			},
-		}),
-	}, nil
+		Artifacts: statusResult.Artifacts,
+		Error:     statusResult.Error,
+		Messages:  new(messages),
+		Metrics:   statusResult.Metrics,
+	}, err
 }
 
 func (a *memoryCheck) Status(ctx context.Context, state *MemoryCheckState) (*action_kit_api.StatusResult, error) {
+	return memoryCheckStatus(ctx, state)
+}
+
+func memoryCheckStatus(ctx context.Context, state *MemoryCheckState) (*action_kit_api.StatusResult, error) {
 	now := time.Now()
 	completed := now.Unix() >= state.EndTime
 

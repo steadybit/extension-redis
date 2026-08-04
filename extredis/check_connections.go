@@ -147,17 +147,34 @@ func (a *connectionCountCheck) Start(ctx context.Context, state *ConnectionCount
 		return nil, fmt.Errorf("failed to ping Redis: %w", err)
 	}
 
+	statusResult, err := connectionCountCheckStatus(ctx, state)
+	if statusResult == nil {
+		return nil, err
+	}
+
+	messages := []action_kit_api.Message{
+		{
+			Level:   extutil.Ptr(action_kit_api.Info),
+			Message: "Started monitoring Redis connection count",
+		},
+	}
+	if statusResult.Messages != nil {
+		messages = append(messages, *statusResult.Messages...)
+	}
+
 	return &action_kit_api.StartResult{
-		Messages: new([]action_kit_api.Message{
-			{
-				Level:   extutil.Ptr(action_kit_api.Info),
-				Message: "Started monitoring Redis connection count",
-			},
-		}),
-	}, nil
+		Artifacts: statusResult.Artifacts,
+		Error:     statusResult.Error,
+		Messages:  new(messages),
+		Metrics:   statusResult.Metrics,
+	}, err
 }
 
 func (a *connectionCountCheck) Status(ctx context.Context, state *ConnectionCountCheckState) (*action_kit_api.StatusResult, error) {
+	return connectionCountCheckStatus(ctx, state)
+}
+
+func connectionCountCheckStatus(ctx context.Context, state *ConnectionCountCheckState) (*action_kit_api.StatusResult, error) {
 	now := time.Now()
 	completed := now.Unix() >= state.EndTime
 
