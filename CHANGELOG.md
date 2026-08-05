@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.10
+
+- feat: support filtering targets out of discovery
+- fix: emit connection/latency/memory/replication metrics on Start
+
 ## v1.1.9
 
 - chore(deps): update dependencies
