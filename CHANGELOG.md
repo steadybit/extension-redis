@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.11
+
+- chore(deps): bump github.com/redis/go-redis/v9 from 9.21.0 to 9.22.0
+
 ## v1.1.10
 
 - feat: support filtering targets out of discovery
