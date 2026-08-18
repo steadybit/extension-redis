@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.12
+
+- chore(deps): bump steadybit kits and drop Go patch pin (#45)
+
 ## v1.1.11
 
 - chore(deps): bump github.com/redis/go-redis/v9 from 9.21.0 to 9.22.0
