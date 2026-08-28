@@ -3,7 +3,7 @@ module github.com/steadybit/extension-redis
 go 1.26
 
 require (
-	github.com/KimMachineGun/automemlimit v0.7.5
+	github.com/KimMachineGun/automemlimit v1.0.0
 	github.com/alicebob/miniredis/v2 v2.38.0
 	github.com/go-redis/redismock/v9 v9.2.0
 	github.com/google/uuid v1.6.0
