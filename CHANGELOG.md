@@ -1,5 +1,11 @@
 # Changelog
 
+## v1.1.14
+
+- chore(deps): bump github.com/KimMachineGun/automemlimit
+- chore(deps): bump github.com/steadybit/action-kit/go/action_kit_test
+- chore(deps): bump golang from 1.26-alpine to 1.27-alpine
+
 ## v1.1.13
 
 - chore(deps): bump github.com/steadybit/action-kit/go/action_kit_test
