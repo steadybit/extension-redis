@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.16
+
+- chore(deps): bump github.com/alicebob/miniredis/v2 from 2.38.0 to 2.39.0
+
 ## v1.1.15
 
 - chore(deps): bump github.com/steadybit/action-kit/go/action_kit_test
