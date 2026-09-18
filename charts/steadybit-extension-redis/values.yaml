@@ -71,7 +71,7 @@ tls:
       #      # tls.client.certificates.paths -- List paths containing TLS certificates for the extension to trust.
       #      #  The extension will require clients to authenticate using one of these certificates. In essence, this will enable mutual TLS.
       #      paths: []
-      #logging:
+      # logging:
       #  # logging.level -- The active log level. Valid values are: TRACE, DEBUG, INFO, WARN, ERROR
       #  level: INFO
       #  # logging.format -- The format of the log entries. One of text, json
