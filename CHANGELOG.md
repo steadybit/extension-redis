@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.17
+
+- Add OpenTelemetry tracing support
+- Update dependencies
+
 ## v1.1.16
 
 - chore(deps): bump github.com/alicebob/miniredis/v2 from 2.38.0 to 2.39.0
