@@ -56,6 +56,7 @@ spec:
               memory: {{ .Values.resources.limits.memory }}
               cpu: {{ .Values.resources.limits.cpu }}
           env:
+            {{- include "extensionlib.deployment.env" (list .) | nindent 12 }}
             {{- if .Values.redis.auth.existingSecret }}
             - name: STEADYBIT_EXTENSION_ENDPOINTS_JSON
               valueFrom:
@@ -63,7 +64,6 @@ spec:
                   name: {{ .Values.redis.auth.existingSecret }}
                   key: endpoints-json
             {{- else if .Values.redis.auth.managementEndpoints }}
-            {{- include "extensionlib.deployment.env" (list .) | nindent 12 }}
             - name: STEADYBIT_EXTENSION_ENDPOINTS_JSON
               valueFrom:
                 secretKeyRef:
