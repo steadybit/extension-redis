@@ -26,6 +26,10 @@ manifest should match snapshot with default values:
         spec:
           containers:
             - env:
+                - name: STEADYBIT_LOG_LEVEL
+                  value: INFO
+                - name: STEADYBIT_LOG_FORMAT
+                  value: text
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
                   value: "30"
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS
@@ -99,6 +103,10 @@ manifest should match snapshot with global priority class:
         spec:
           containers:
             - env:
+                - name: STEADYBIT_LOG_LEVEL
+                  value: INFO
+                - name: STEADYBIT_LOG_FORMAT
+                  value: text
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
                   value: "30"
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS
@@ -173,6 +181,10 @@ manifest should match snapshot with priority class:
         spec:
           containers:
             - env:
+                - name: STEADYBIT_LOG_LEVEL
+                  value: INFO
+                - name: STEADYBIT_LOG_FORMAT
+                  value: text
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
                   value: "30"
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS
