@@ -529,7 +529,7 @@ func TestGetRedisClient_ClusterNodeAuthenticatesWithSeedEndpointCredentials(t *t
 		{URL: "redis://redis-cluster.invalid:6379", Password: "cluster-password", Name: "my-cluster"},
 	}
 	nodeURL := "redis://" + mr.Addr()
-	config.RegisterClusterNode(nodeURL, &config.Config.Endpoints[0])
+	config.SetClusterNodes(&config.Config.Endpoints[0], []string{nodeURL})
 	defer CloseAllClients()
 
 	// When an action connects to the node by its published URL

@@ -13,6 +13,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/steadybit/action-kit/go/action_kit_api/v2"
 	"github.com/steadybit/extension-kit/extutil"
+	"github.com/steadybit/extension-redis/config"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -246,6 +247,31 @@ func TestCreateSingleConnectionClient(t *testing.T) {
 	// Ping to establish connection
 	err = client.Ping(context.Background()).Err()
 	require.NoError(t, err)
+}
+
+func TestCreateSingleConnectionClient_UsesCredentialsEmbeddedInEndpointURL(t *testing.T) {
+	// Given a password-protected cluster node, discovered through a seed endpoint whose password is
+	// embedded in its URL
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+	mr.RequireAuth("embedded-password")
+
+	origEndpoints := config.Config.Endpoints
+	defer func() { config.Config.Endpoints = origEndpoints }()
+	config.Config.Endpoints = []config.RedisEndpoint{
+		{URL: "redis://:embedded-password@redis-cluster.invalid:6379", Name: "my-cluster"},
+	}
+	nodeURL := fmt.Sprintf("redis://%s", mr.Addr())
+	config.SetClusterNodes(&config.Config.Endpoints[0], []string{nodeURL})
+
+	// When connecting by the node's credential-free published URL
+	client, err := createSingleConnectionClient(nodeURL, 0)
+	require.NoError(t, err)
+	defer client.Close()
+
+	// Then the embedded password is used
+	require.NoError(t, client.Ping(context.Background()).Err())
 }
 
 func TestCreateSingleConnectionClient_InvalidURL(t *testing.T) {

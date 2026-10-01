@@ -6,6 +6,7 @@ package config
 
 import (
 	"encoding/json"
+	"maps"
 	"net/url"
 	"sync"
 
@@ -54,8 +55,14 @@ var (
 
 	// clusterNodes maps the sanitized URL of each discovered cluster node to an endpoint carrying the
 	// credentials and TLS settings of the configured endpoint the node was discovered through.
-	clusterNodes sync.Map
+	clusterNodes   = map[string]clusterNode{}
+	clusterNodesMu sync.RWMutex
 )
+
+type clusterNode struct {
+	endpoint *RedisEndpoint
+	seed     string // sanitized URL of the configured endpoint the node was discovered through
+}
 
 func ParseConfiguration() {
 	err := envconfig.Process("steadybit_extension", &Config)
@@ -108,7 +115,7 @@ func SanitizeRedisURL(rawURL string) string {
 // GetEndpointByURL resolves the configured endpoint for a (possibly credential-stripped) URL.
 // Both sides are sanitized before comparison so a published, credential-free target URL still
 // resolves to its endpoint configuration. URLs of discovered cluster nodes resolve to the endpoint
-// registered via RegisterClusterNode.
+// registered via SetClusterNodes.
 func GetEndpointByURL(rawURL string) *RedisEndpoint {
 	target := SanitizeRedisURL(rawURL)
 	for i := range Config.Endpoints {
@@ -116,22 +123,38 @@ func GetEndpointByURL(rawURL string) *RedisEndpoint {
 			return &Config.Endpoints[i]
 		}
 	}
-	if node, ok := clusterNodes.Load(target); ok {
-		return node.(*RedisEndpoint)
+	clusterNodesMu.RLock()
+	defer clusterNodesMu.RUnlock()
+	if node, ok := clusterNodes[target]; ok {
+		return node.endpoint
 	}
 	return nil
 }
 
-// RegisterClusterNode records that nodeURL is a node of the cluster reached through endpoint, so
-// actions on the node's target connect with the endpoint's credentials and TLS settings. The node
-// endpoint is pinned to standalone mode and db 0: actions keep operating on that single node, and
-// cluster nodes only support db 0.
-func RegisterClusterNode(nodeURL string, endpoint *RedisEndpoint) {
-	node := *endpoint
-	node.URL = withUserInfoOf(nodeURL, endpoint.URL)
-	node.DB = 0
-	node.ClusterMode = "standalone"
-	clusterNodes.Store(SanitizeRedisURL(nodeURL), &node)
+// SetClusterNodes records nodeURLs as the current nodes of the cluster reached through endpoint, so
+// actions on a node's target connect with the endpoint's credentials and TLS settings. Nodes
+// previously registered for the same endpoint but no longer listed are dropped, so an address that
+// left the cluster stops resolving to its credentials. Each node endpoint is pinned to standalone
+// mode and db 0: actions keep operating on that single node, and cluster nodes only support db 0.
+func SetClusterNodes(endpoint *RedisEndpoint, nodeURLs []string) {
+	seed := SanitizeRedisURL(endpoint.URL)
+	current := make(map[string]clusterNode, len(nodeURLs))
+	for _, nodeURL := range nodeURLs {
+		node := *endpoint
+		node.URL = withUserInfoOf(nodeURL, endpoint.URL)
+		node.DB = 0
+		node.ClusterMode = "standalone"
+		current[SanitizeRedisURL(nodeURL)] = clusterNode{endpoint: &node, seed: seed}
+	}
+
+	clusterNodesMu.Lock()
+	defer clusterNodesMu.Unlock()
+	for key, node := range clusterNodes {
+		if _, ok := current[key]; !ok && node.seed == seed {
+			delete(clusterNodes, key)
+		}
+	}
+	maps.Copy(clusterNodes, current)
 }
 
 // withUserInfoOf returns rawURL carrying the credentials embedded in the URL of source, if any.
