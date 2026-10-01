@@ -183,7 +183,9 @@ func discoverClusterNodes(ctx context.Context, endpoint *config.RedisEndpoint, s
 		if strings.HasPrefix(endpoint.URL, "rediss://") {
 			scheme = "rediss"
 		}
-		target.Attributes[AttrRedisURL] = []string{fmt.Sprintf("%s://%s:%s", scheme, nodeHost, nodePort)}
+		nodeURL := fmt.Sprintf("%s://%s:%s", scheme, nodeHost, nodePort)
+		target.Attributes[AttrRedisURL] = []string{nodeURL}
+		config.RegisterClusterNode(nodeURL, endpoint)
 
 		targets = append(targets, target)
 	}

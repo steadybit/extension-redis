@@ -7,6 +7,7 @@ package config
 import (
 	"encoding/json"
 	"net/url"
+	"sync"
 
 	"github.com/kelseyhightower/envconfig"
 	"github.com/rs/zerolog/log"
@@ -50,6 +51,10 @@ type Specification struct {
 
 var (
 	Config Specification
+
+	// clusterNodes maps the sanitized URL of each discovered cluster node to an endpoint carrying the
+	// credentials and TLS settings of the configured endpoint the node was discovered through.
+	clusterNodes sync.Map
 )
 
 func ParseConfiguration() {
@@ -102,7 +107,8 @@ func SanitizeRedisURL(rawURL string) string {
 
 // GetEndpointByURL resolves the configured endpoint for a (possibly credential-stripped) URL.
 // Both sides are sanitized before comparison so a published, credential-free target URL still
-// resolves to its endpoint configuration.
+// resolves to its endpoint configuration. URLs of discovered cluster nodes resolve to the endpoint
+// registered via RegisterClusterNode.
 func GetEndpointByURL(rawURL string) *RedisEndpoint {
 	target := SanitizeRedisURL(rawURL)
 	for i := range Config.Endpoints {
@@ -110,5 +116,34 @@ func GetEndpointByURL(rawURL string) *RedisEndpoint {
 			return &Config.Endpoints[i]
 		}
 	}
+	if node, ok := clusterNodes.Load(target); ok {
+		return node.(*RedisEndpoint)
+	}
 	return nil
+}
+
+// RegisterClusterNode records that nodeURL is a node of the cluster reached through endpoint, so
+// actions on the node's target connect with the endpoint's credentials and TLS settings. The node
+// endpoint is pinned to standalone mode and db 0: actions keep operating on that single node, and
+// cluster nodes only support db 0.
+func RegisterClusterNode(nodeURL string, endpoint *RedisEndpoint) {
+	node := *endpoint
+	node.URL = withUserInfoOf(nodeURL, endpoint.URL)
+	node.DB = 0
+	node.ClusterMode = "standalone"
+	clusterNodes.Store(SanitizeRedisURL(nodeURL), &node)
+}
+
+// withUserInfoOf returns rawURL carrying the credentials embedded in the URL of source, if any.
+func withUserInfoOf(rawURL, source string) string {
+	src, err := url.Parse(source)
+	if err != nil || src.User == nil {
+		return rawURL
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	parsed.User = src.User
+	return parsed.String()
 }
