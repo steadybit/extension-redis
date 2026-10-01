@@ -233,3 +233,22 @@ func TestInstanceDiscovery_DiscoverTargets_ViaEndpoints(t *testing.T) {
 	require.Len(t, targets, 1)
 	assert.Equal(t, "via-endpoints", targets[0].Label)
 }
+
+func TestClusterNodeURL_SchemeFollowsEndpoint(t *testing.T) {
+	tests := []struct {
+		name     string
+		endpoint config.RedisEndpoint
+		want     string
+	}{
+		{"plain endpoint", config.RedisEndpoint{URL: "redis://seed:6379"}, "redis://10.0.0.1:6380"},
+		{"TLS endpoint", config.RedisEndpoint{URL: "rediss://seed:6379"}, "rediss://10.0.0.1:6380"},
+		{"plain endpoint with InsecureSkipVerify", config.RedisEndpoint{URL: "redis://seed:6379", InsecureSkipVerify: true}, "redis://10.0.0.1:6380"},
+		{"TLS endpoint with InsecureSkipVerify", config.RedisEndpoint{URL: "rediss://seed:6379", InsecureSkipVerify: true}, "rediss://10.0.0.1:6380"},
+		{"TLS endpoint with embedded credentials", config.RedisEndpoint{URL: "rediss://alice:pw@seed:6379"}, "rediss://10.0.0.1:6380"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, clusterNodeURL(&tt.endpoint, "10.0.0.1", "6380"))
+		})
+	}
+}

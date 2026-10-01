@@ -177,14 +177,7 @@ func discoverClusterNodes(ctx context.Context, endpoint *config.RedisEndpoint, s
 
 		target := buildInstanceTarget(endpoint, nodeHost, nodePort, nodeInfo, node.ID)
 		// Override the URL to point to this specific node
-		scheme := "redis"
-		if endpoint.InsecureSkipVerify || len(endpoint.URL) > 8 && endpoint.URL[:8] == "rediss://" {
-			scheme = "rediss"
-		}
-		if strings.HasPrefix(endpoint.URL, "rediss://") {
-			scheme = "rediss"
-		}
-		nodeURL := fmt.Sprintf("%s://%s:%s", scheme, nodeHost, nodePort)
+		nodeURL := clusterNodeURL(endpoint, nodeHost, nodePort)
 		target.Attributes[AttrRedisURL] = []string{nodeURL}
 		nodeURLs = append(nodeURLs, nodeURL)
 
@@ -193,6 +186,17 @@ func discoverClusterNodes(ctx context.Context, endpoint *config.RedisEndpoint, s
 	config.SetClusterNodes(endpoint, nodeURLs)
 
 	return targets, nil
+}
+
+// clusterNodeURL builds the URL of a cluster node, using TLS exactly when the endpoint it was
+// discovered through does. InsecureSkipVerify only tunes certificate verification of a TLS
+// endpoint; it does not turn TLS on.
+func clusterNodeURL(endpoint *config.RedisEndpoint, host, port string) string {
+	scheme := "redis"
+	if strings.HasPrefix(endpoint.URL, "rediss://") {
+		scheme = "rediss"
+	}
+	return fmt.Sprintf("%s://%s:%s", scheme, host, port)
 }
 
 func buildInstanceTarget(endpoint *config.RedisEndpoint, host, port string, info map[string]string, clusterNodeID string) discovery_kit_api.Target {

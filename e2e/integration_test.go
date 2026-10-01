@@ -27,7 +27,7 @@ func TestWithMinikube(t *testing.T) {
 		Port: 8083,
 		ExtraArgs: func(m *e2e.Minikube) []string {
 			endpointsJSON := `[{"url":"redis://my-redis-master.default.svc.cluster.local:6379","password":"redis-password","name":"my-redis"},` +
-				`{"url":"redis://redis-cluster.default.svc.cluster.local:6379","password":"redis-password","name":"my-redis-cluster"}]`
+				`{"url":"redis://redis-cluster.default.svc.cluster.local:6379","password":"redis-password","name":"my-redis-cluster","insecureSkipVerify":true}]`
 			return []string{
 				"--set", "logging.level=debug",
 				"--set-json", "redis.auth.managementEndpoints=" + endpointsJSON,
@@ -120,7 +120,9 @@ func testCacheExpirationHighVolume(t *testing.T, m *e2e.Minikube, e *e2e.Extensi
 
 // testCheckLatencyOnAuthenticatedClusterNode runs an action against a node discovered from a
 // password-protected Redis Cluster. The node's target URL is its own address, not the configured
-// seed endpoint, so the action must still connect with the seed endpoint's credentials.
+// seed endpoint, so the action must still connect with the seed endpoint's credentials. The seed
+// endpoint also sets insecureSkipVerify on a plain (non-TLS) URL, which must not switch the node
+// to TLS.
 func testCheckLatencyOnAuthenticatedClusterNode(t *testing.T, _ *e2e.Minikube, e *e2e.Extension) {
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
@@ -131,6 +133,8 @@ func testCheckLatencyOnAuthenticatedClusterNode(t *testing.T, _ *e2e.Minikube, e
 	require.NoError(t, err)
 	require.NotEqual(t, "redis://redis-cluster.default.svc.cluster.local:6379", node.Attributes["redis.url"][0],
 		"cluster node targets should carry the node's own address")
+	require.True(t, strings.HasPrefix(node.Attributes["redis.url"][0], "redis://"),
+		"node of a plain endpoint should not use TLS, got %s", node.Attributes["redis.url"][0])
 
 	target := &action_kit_api.Target{Attributes: node.Attributes}
 	config := map[string]any{
