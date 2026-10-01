@@ -157,6 +157,7 @@ func discoverClusterNodes(ctx context.Context, endpoint *config.RedisEndpoint, s
 	}
 
 	var targets []discovery_kit_api.Target
+	var nodeURLs []string
 	for _, node := range nodes {
 		nodeClient, err := clients.CreateDirectClient(endpoint, node.Addr)
 		if err != nil {
@@ -183,10 +184,13 @@ func discoverClusterNodes(ctx context.Context, endpoint *config.RedisEndpoint, s
 		if strings.HasPrefix(endpoint.URL, "rediss://") {
 			scheme = "rediss"
 		}
-		target.Attributes[AttrRedisURL] = []string{fmt.Sprintf("%s://%s:%s", scheme, nodeHost, nodePort)}
+		nodeURL := fmt.Sprintf("%s://%s:%s", scheme, nodeHost, nodePort)
+		target.Attributes[AttrRedisURL] = []string{nodeURL}
+		nodeURLs = append(nodeURLs, nodeURL)
 
 		targets = append(targets, target)
 	}
+	config.SetClusterNodes(endpoint, nodeURLs)
 
 	return targets, nil
 }

@@ -53,7 +53,13 @@ func createSingleConnectionClient(url string, db int) (*redis.Client, error) {
 	// Get endpoint config to retrieve password and other settings
 	endpoint := config.GetEndpointByURL(url)
 
-	opts, err := redis.ParseURL(url)
+	// Parse the endpoint's own URL when known: unlike the published target URL, it keeps any
+	// credentials embedded in it.
+	connectURL := url
+	if endpoint != nil {
+		connectURL = endpoint.URL
+	}
+	opts, err := redis.ParseURL(connectURL)
 	if err != nil {
 		return nil, err
 	}
@@ -73,7 +79,7 @@ func createSingleConnectionClient(url string, db int) (*redis.Client, error) {
 	}
 
 	// Configure TLS if using rediss://
-	if strings.HasPrefix(url, "rediss://") {
+	if strings.HasPrefix(connectURL, "rediss://") {
 		if opts.TLSConfig == nil {
 			opts.TLSConfig = &tls.Config{}
 		}

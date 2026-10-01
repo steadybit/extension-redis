@@ -26,7 +26,8 @@ func TestWithMinikube(t *testing.T) {
 		Name: "extension-redis",
 		Port: 8083,
 		ExtraArgs: func(m *e2e.Minikube) []string {
-			endpointsJSON := `[{"url":"redis://my-redis-master.default.svc.cluster.local:6379","password":"redis-password","name":"my-redis"}]`
+			endpointsJSON := `[{"url":"redis://my-redis-master.default.svc.cluster.local:6379","password":"redis-password","name":"my-redis"},` +
+				`{"url":"redis://redis-cluster.default.svc.cluster.local:6379","password":"redis-password","name":"my-redis-cluster"}]`
 			return []string{
 				"--set", "logging.level=debug",
 				"--set-json", "redis.auth.managementEndpoints=" + endpointsJSON,
@@ -35,7 +36,7 @@ func TestWithMinikube(t *testing.T) {
 	}
 
 	e2e.WithMinikube(t,
-		e2e.DefaultMinikubeOpts().AfterStart(helmInstallRedis),
+		e2e.DefaultMinikubeOpts().AfterStart(installRedis),
 		&extFactory,
 		[]e2e.WithMinikubeTestCase{
 			{Name: "validate discovery", Test: validateDiscovery},
@@ -43,6 +44,7 @@ func TestWithMinikube(t *testing.T) {
 			{Name: "discover instances", Test: testDiscoverInstances},
 			{Name: "discover databases", Test: testDiscoverDatabases},
 			{Name: "cache expiration high volume", Test: testCacheExpirationHighVolume},
+			{Name: "check latency on authenticated cluster node", Test: testCheckLatencyOnAuthenticatedClusterNode},
 		},
 	)
 }
@@ -114,6 +116,31 @@ func testCacheExpirationHighVolume(t *testing.T, m *e2e.Minikube, e *e2e.Extensi
 		ttl := getKeyTTL(t, m, key)
 		assert.Greater(t, ttl, 0, "Key %s should have a TTL set", key)
 	}
+}
+
+// testCheckLatencyOnAuthenticatedClusterNode runs an action against a node discovered from a
+// password-protected Redis Cluster. The node's target URL is its own address, not the configured
+// seed endpoint, so the action must still connect with the seed endpoint's credentials.
+func testCheckLatencyOnAuthenticatedClusterNode(t *testing.T, _ *e2e.Minikube, e *e2e.Extension) {
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+
+	node, err := e2e.PollForTarget(ctx, e, "com.steadybit.extension_redis.instance", func(t discovery_kit_api.Target) bool {
+		return len(t.Attributes["redis.cluster.node_id"]) > 0
+	})
+	require.NoError(t, err)
+	require.NotEqual(t, "redis://redis-cluster.default.svc.cluster.local:6379", node.Attributes["redis.url"][0],
+		"cluster node targets should carry the node's own address")
+
+	target := &action_kit_api.Target{Attributes: node.Attributes}
+	config := map[string]any{
+		"duration":     3000,
+		"maxLatencyMs": 1000,
+	}
+
+	execution, err := e.RunAction("com.steadybit.extension_redis.instance.check-latency", target, config, nil)
+	require.NoError(t, err)
+	require.NoError(t, execution.Wait())
 }
 
 // populateKeys creates count keys with the given prefix using a Redis pipeline
@@ -198,6 +225,96 @@ func cleanupKeys(m *e2e.Minikube, pattern string) {
 		"redis-cli", "-a", "redis-password",
 		"EVAL", fmt.Sprintf("local keys = redis.call('KEYS', '%s') if #keys > 0 then return redis.call('DEL', unpack(keys)) end return 0", pattern), "0",
 	).Run()
+}
+
+func installRedis(minikube *e2e.Minikube) error {
+	if err := helmInstallRedis(minikube); err != nil {
+		return err
+	}
+	return installRedisCluster(minikube)
+}
+
+// redisClusterManifest is a three-master, password-protected Redis Cluster built from the official
+// redis image (Bitnami no longer publishes a redis-cluster image).
+const redisClusterManifest = `
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-cluster
+  namespace: default
+spec:
+  selector:
+    app: redis-cluster
+  ports:
+    - name: redis
+      port: 6379
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: redis-cluster
+  namespace: default
+spec:
+  serviceName: redis-cluster
+  replicas: 3
+  selector:
+    matchLabels:
+      app: redis-cluster
+  template:
+    metadata:
+      labels:
+        app: redis-cluster
+    spec:
+      containers:
+        - name: redis
+          image: redis:7.4
+          args: ["--cluster-enabled", "yes", "--requirepass", "redis-password", "--masterauth", "redis-password", "--appendonly", "no", "--save", ""]
+          ports:
+            - containerPort: 6379
+          readinessProbe:
+            exec:
+              command: ["redis-cli", "-a", "redis-password", "ping"]
+`
+
+func installRedisCluster(minikube *e2e.Minikube) error {
+	apply := exec.Command("kubectl", "--context", minikube.Profile, "apply", "-f", "-") //NOSONAR go:S4036
+	apply.Stdin = strings.NewReader(redisClusterManifest)
+	if out, err := apply.CombinedOutput(); err != nil {
+		return fmt.Errorf("failed to apply redis cluster: %s: %s", err, out)
+	}
+
+	if out, err := exec.Command("kubectl", "--context", minikube.Profile, "-n", "default", //NOSONAR go:S4036
+		"rollout", "status", "statefulset/redis-cluster", "--timeout=5m").CombinedOutput(); err != nil {
+		return fmt.Errorf("redis cluster pods not ready: %s: %s", err, out)
+	}
+
+	out, err := exec.Command("kubectl", "--context", minikube.Profile, "-n", "default", //NOSONAR go:S4036
+		"get", "pods", "-l", "app=redis-cluster", "-o", "jsonpath={.items[*].status.podIP}").CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("failed to get redis cluster pod IPs: %s: %s", err, out)
+	}
+	args := []string{"--context", minikube.Profile, "-n", "default", "exec", "redis-cluster-0", "--",
+		"redis-cli", "-a", "redis-password", "--cluster", "create"}
+	for ip := range strings.FieldsSeq(string(out)) {
+		args = append(args, ip+":6379")
+	}
+	args = append(args, "--cluster-replicas", "0", "--cluster-yes")
+	if out, err := exec.Command("kubectl", args...).CombinedOutput(); err != nil { //NOSONAR go:S4036
+		return fmt.Errorf("failed to create redis cluster: %s: %s", err, out)
+	}
+
+	deadline := time.Now().Add(2 * time.Minute)
+	for {
+		out, err := exec.Command("kubectl", "--context", minikube.Profile, "-n", "default", //NOSONAR go:S4036
+			"exec", "redis-cluster-0", "--", "redis-cli", "-a", "redis-password", "cluster", "info").CombinedOutput()
+		if err == nil && strings.Contains(string(out), "cluster_state:ok") {
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("redis cluster not ready after waiting: %v: %s", err, out)
+		}
+		time.Sleep(5 * time.Second)
+	}
 }
 
 func helmInstallRedis(minikube *e2e.Minikube) error {

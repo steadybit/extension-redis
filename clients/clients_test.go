@@ -515,3 +515,27 @@ func TestParseRedisURL_TLS_SecureSkipVerifyFalse(t *testing.T) {
 	require.NotNil(t, opts.TLSConfig)
 	assert.False(t, opts.TLSConfig.InsecureSkipVerify)
 }
+
+func TestGetRedisClient_ClusterNodeAuthenticatesWithSeedEndpointCredentials(t *testing.T) {
+	// Given a password-protected node of a cluster reached through a configured seed endpoint
+	mr, err := miniredis.Run()
+	require.NoError(t, err)
+	defer mr.Close()
+	mr.RequireAuth("cluster-password")
+
+	origEndpoints := config.Config.Endpoints
+	defer func() { config.Config.Endpoints = origEndpoints }()
+	config.Config.Endpoints = []config.RedisEndpoint{
+		{URL: "redis://redis-cluster.invalid:6379", Password: "cluster-password", Name: "my-cluster"},
+	}
+	nodeURL := "redis://" + mr.Addr()
+	config.SetClusterNodes(&config.Config.Endpoints[0], []string{nodeURL})
+	defer CloseAllClients()
+
+	// When an action connects to the node by its published URL
+	client, err := GetRedisClient(nodeURL, "", 0)
+	require.NoError(t, err)
+
+	// Then it authenticates with the seed endpoint's password
+	assert.NoError(t, PingRedis(context.Background(), client))
+}

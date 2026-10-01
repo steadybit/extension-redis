@@ -192,3 +192,81 @@ func TestGetEndpointByURL_MultipleMatches(t *testing.T) {
 	assert.NotNil(t, ep)
 	assert.Equal(t, "b", ep.Name)
 }
+
+func TestGetEndpointByURL_ResolvesRegisteredClusterNode(t *testing.T) {
+	// Given a cluster reached through a seed endpoint, and one of its nodes registered by discovery
+	Config.Endpoints = []RedisEndpoint{
+		{URL: "rediss://redis-cluster.local:6379", Password: "secret", Username: "alice", DB: 3, InsecureSkipVerify: true, Name: "my-cluster", MaxBackupSizeBytes: 42},
+	}
+	SetClusterNodes(&Config.Endpoints[0], []string{"rediss://10.0.0.5:6380"})
+
+	// When an action looks up the node's published URL
+	got := GetEndpointByURL("rediss://10.0.0.5:6380")
+
+	// Then it gets the seed endpoint's credentials and TLS settings, pinned to the node itself
+	require.NotNil(t, got)
+	assert.Equal(t, "rediss://10.0.0.5:6380", got.URL)
+	assert.Equal(t, "secret", got.Password)
+	assert.Equal(t, "alice", got.Username)
+	assert.True(t, got.InsecureSkipVerify)
+	assert.Equal(t, "my-cluster", got.Name)
+	assert.Equal(t, int64(42), got.MaxBackupSizeBytes)
+	assert.Equal(t, 0, got.DB)
+	assert.Equal(t, "standalone", got.ClusterMode)
+
+	// And the configured endpoint itself is unchanged
+	assert.Equal(t, "rediss://redis-cluster.local:6379", Config.Endpoints[0].URL)
+	assert.Equal(t, 3, Config.Endpoints[0].DB)
+}
+
+func TestGetEndpointByURL_ClusterNodeKeepsCredentialsEmbeddedInURL(t *testing.T) {
+	// Given a seed endpoint whose credentials are embedded in its URL
+	Config.Endpoints = []RedisEndpoint{
+		{URL: "redis://alice:s3cr3t@redis-cluster.local:6379", Name: "my-cluster"},
+	}
+	SetClusterNodes(&Config.Endpoints[0], []string{"redis://10.0.0.6:6379"})
+
+	// When
+	got := GetEndpointByURL("redis://10.0.0.6:6379")
+
+	// Then the node endpoint carries the same embedded credentials
+	require.NotNil(t, got)
+	assert.Equal(t, "redis://alice:s3cr3t@10.0.0.6:6379", got.URL)
+}
+
+func TestGetEndpointByURL_ConfiguredEndpointWinsOverClusterNode(t *testing.T) {
+	// Given a node URL that is also configured as an endpoint of its own
+	Config.Endpoints = []RedisEndpoint{
+		{URL: "redis://redis-cluster.local:6379", Password: "seed", Name: "seed"},
+		{URL: "redis://10.0.0.7:6379", Password: "own", Name: "own"},
+	}
+	SetClusterNodes(&Config.Endpoints[0], []string{"redis://10.0.0.7:6379"})
+
+	// When
+	got := GetEndpointByURL("redis://10.0.0.7:6379")
+
+	// Then the explicitly configured endpoint is used
+	require.NotNil(t, got)
+	assert.Equal(t, "own", got.Name)
+	assert.Equal(t, "own", got.Password)
+}
+
+func TestSetClusterNodes_DropsNodesThatLeftTheCluster(t *testing.T) {
+	// Given two clusters, each with registered nodes
+	Config.Endpoints = []RedisEndpoint{
+		{URL: "redis://cluster-a.local:6379", Password: "a", Name: "cluster-a"},
+		{URL: "redis://cluster-b.local:6379", Password: "b", Name: "cluster-b"},
+	}
+	SetClusterNodes(&Config.Endpoints[0], []string{"redis://10.0.1.1:6379", "redis://10.0.1.2:6379"})
+	SetClusterNodes(&Config.Endpoints[1], []string{"redis://10.0.2.1:6379"})
+
+	// When cluster-a's next discovery no longer lists 10.0.1.2
+	SetClusterNodes(&Config.Endpoints[0], []string{"redis://10.0.1.1:6379"})
+
+	// Then that node stops resolving, while the remaining nodes of both clusters still do
+	assert.Nil(t, GetEndpointByURL("redis://10.0.1.2:6379"))
+	require.NotNil(t, GetEndpointByURL("redis://10.0.1.1:6379"))
+	assert.Equal(t, "a", GetEndpointByURL("redis://10.0.1.1:6379").Password)
+	require.NotNil(t, GetEndpointByURL("redis://10.0.2.1:6379"))
+	assert.Equal(t, "b", GetEndpointByURL("redis://10.0.2.1:6379").Password)
+}
