@@ -1,5 +1,12 @@
 # Changelog
 
+## v1.1.18
+
+- chore(deps): bump github.com/steadybit/action-kit/go/action_kit_test
+- fix(chart): always render the shared extension env (#55)
+- fix: authenticate actions on Redis Cluster node targets (#57)
+- fix: keep cluster nodes of a plain endpoint on plain TCP (#58)
+
 ## v1.1.17
 
 - Add OpenTelemetry tracing support
