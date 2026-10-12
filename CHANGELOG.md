@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.19
+
+- chore(deps): bump github.com/redis/go-redis/v9 from 9.22.0 to 9.23.0
+
 ## v1.1.18
 
 - chore(deps): bump github.com/steadybit/action-kit/go/action_kit_test
