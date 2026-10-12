@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.20
+
+- chore(deps): bump golang.org/x/net to v0.61.0
+
 ## v1.1.19
 
 - chore(deps): bump github.com/redis/go-redis/v9 from 9.22.0 to 9.23.0
