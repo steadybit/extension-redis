@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.1.21
+
+- chore(deps): bump github.com/alicebob/miniredis/v2 from 2.39.0 to 2.40.0
+
 ## v1.1.20
 
 - chore(deps): bump golang.org/x/net to v0.61.0
