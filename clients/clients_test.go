@@ -5,6 +5,7 @@ package clients
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	"testing"
@@ -538,4 +539,37 @@ func TestGetRedisClient_ClusterNodeAuthenticatesWithSeedEndpointCredentials(t *t
 
 	// Then it authenticates with the seed endpoint's password
 	assert.NoError(t, PingRedis(context.Background(), client))
+}
+
+func TestTLSConfig_keeps_parsed_settings_and_system_pool(t *testing.T) {
+	t.Setenv("STEADYBIT_EXTENSION_INSECURE_SKIP_VERIFY", "")
+	base := &tls.Config{ServerName: "redis.example.com", MinVersion: tls.VersionTLS12}
+
+	cfg := TLSConfig(base, false)
+
+	assert.Equal(t, "redis.example.com", cfg.ServerName)
+	assert.False(t, cfg.InsecureSkipVerify)
+	assert.Nil(t, cfg.RootCAs, "RootCAs must stay nil so a CA mounted via SSL_CERT_DIR is trusted")
+	assert.Equal(t, uint16(tls.VersionTLS12), cfg.MinVersion)
+	assert.NotSame(t, base, cfg)
+}
+
+func TestTLSConfig_skips_verification(t *testing.T) {
+	for name, tc := range map[string]struct {
+		env      string
+		base     *tls.Config
+		endpoint bool
+		expected bool
+	}{
+		"nothing set":         {expected: false},
+		"endpoint flag":       {endpoint: true, expected: true},
+		"global env":          {env: "true", expected: true},
+		"global env and base": {env: "true", base: &tls.Config{ServerName: "x"}, expected: true},
+		"url skip_verify":     {base: &tls.Config{InsecureSkipVerify: true}, expected: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv("STEADYBIT_EXTENSION_INSECURE_SKIP_VERIFY", tc.env)
+			assert.Equal(t, tc.expected, TLSConfig(tc.base, tc.endpoint).InsecureSkipVerify)
+		})
+	}
 }

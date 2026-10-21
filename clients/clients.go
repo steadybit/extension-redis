@@ -14,8 +14,27 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/rs/zerolog/log"
+	"github.com/steadybit/extension-kit/exttls"
 	"github.com/steadybit/extension-redis/config"
 )
+
+// TLSConfig returns the TLS settings for a rediss:// connection. It starts from a copy of base, as set by
+// redis.ParseURL (ServerName and the skip_verify URL parameter), and keeps the system certificate pool, so a CA
+// mounted via SSL_CERT_DIR is trusted. Verification is skipped if the URL, the endpoint or
+// STEADYBIT_EXTENSION_INSECURE_SKIP_VERIFY asks for it.
+func TLSConfig(base *tls.Config, endpointInsecureSkipVerify bool) *tls.Config {
+	cfg := exttls.ClientConfig()
+	if base != nil {
+		globalInsecureSkipVerify := cfg.InsecureSkipVerify
+		cfg = base.Clone()
+		cfg.InsecureSkipVerify = cfg.InsecureSkipVerify || globalInsecureSkipVerify //NOSONAR explicit user choice
+	}
+	if endpointInsecureSkipVerify {
+		cfg.InsecureSkipVerify = true //NOSONAR explicit user choice
+	}
+	cfg.MinVersion = tls.VersionTLS12
+	return cfg
+}
 
 // clientPool stores long-lived Redis clients keyed by (url, password, db).
 var clientPool sync.Map
@@ -88,6 +107,9 @@ func CreateRedisClientFromURL(url string, password string, db int) (*redis.Clien
 		if err != nil {
 			return nil, err
 		}
+		if opts.TLSConfig != nil {
+			opts.TLSConfig = TLSConfig(opts.TLSConfig, false)
+		}
 	}
 
 	if password != "" {
@@ -118,11 +140,7 @@ func parseRedisURL(endpoint *config.RedisEndpoint) (*redis.Options, error) {
 	}
 
 	if strings.HasPrefix(endpoint.URL, "rediss://") {
-		if opts.TLSConfig == nil {
-			opts.TLSConfig = &tls.Config{}
-		}
-		opts.TLSConfig.InsecureSkipVerify = endpoint.InsecureSkipVerify
-		opts.TLSConfig.MinVersion = tls.VersionTLS12
+		opts.TLSConfig = TLSConfig(opts.TLSConfig, endpoint.InsecureSkipVerify)
 	}
 
 	opts.DialTimeout = 3 * time.Second
@@ -272,10 +290,7 @@ func CreateDirectClient(endpoint *config.RedisEndpoint, addr string) (*redis.Cli
 	}
 
 	if strings.HasPrefix(endpoint.URL, "rediss://") {
-		opts.TLSConfig = &tls.Config{
-			InsecureSkipVerify: endpoint.InsecureSkipVerify,
-			MinVersion:         tls.VersionTLS12,
-		}
+		opts.TLSConfig = TLSConfig(nil, endpoint.InsecureSkipVerify)
 	}
 
 	return redis.NewClient(opts), nil

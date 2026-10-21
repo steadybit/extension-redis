@@ -11,6 +11,7 @@ Learn about the capabilities of this extension in our [Reliability Hub](https://
 | `STEADYBIT_EXTENSION_ENDPOINTS_JSON` | Yes | JSON array of Redis endpoint configurations |
 | `STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS` | No | Interval for instance discovery (default: 30) |
 | `STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS` | No | Interval for database discovery (default: 60) |
+| `STEADYBIT_EXTENSION_INSECURE_SKIP_VERIFY` | No | Skip TLS certificate verification for all `rediss://` endpoints (Helm: `redis.insecureSkipVerify`, default: false). See [Importing your own certificates](#importing-your-own-certificates) |
 
 ### Endpoint Configuration
 
@@ -41,6 +42,45 @@ For TLS connections, use the `rediss://` URL scheme:
     "insecureSkipVerify": true
   }
 ]
+```
+
+### Importing your own certificates
+
+If your Redis serves TLS with a self-signed certificate, or one issued by a private CA, either trust the CA
+(recommended) or skip certificate verification.
+
+#### Option 1: Mounting custom certificates
+
+Store the CA certificate (`*.crt`) in a config map:
+
+```shell
+kubectl create configmap -n steadybit-agent redis-self-signed-ca --from-file=./self-signed-ca.crt
+```
+
+Then mount it and add it to the trusted certificate directories:
+
+```yaml
+extraVolumeMounts:
+  - name: extra-certs
+    mountPath: /etc/ssl/extra-certs
+    readOnly: true
+extraVolumes:
+  - name: extra-certs
+    configMap:
+      name: redis-self-signed-ca
+extraEnv:
+  - name: SSL_CERT_DIR
+    value: /etc/ssl/extra-certs:/etc/ssl/certs
+```
+
+#### Option 2: Skipping certificate verification
+
+Disables TLS certificate verification. Suitable for testing, not recommended for production. Set it per
+endpoint with `"insecureSkipVerify": true` (see above), or for all endpoints:
+
+```yaml
+redis:
+  insecureSkipVerify: true
 ```
 
 Beyond the settings above, this extension supports the configuration common to all Steadybit

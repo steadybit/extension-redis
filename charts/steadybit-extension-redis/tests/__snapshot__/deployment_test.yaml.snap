@@ -1,3 +1,90 @@
+manifest should match snapshot with custom certificates and insecureSkipVerify:
+  1: |
+    apiVersion: apps/v1
+    kind: Deployment
+    metadata:
+      labels:
+        steadybit.com/discovery-disabled: "true"
+        steadybit.com/extension: "true"
+      name: RELEASE-NAME-steadybit-extension-redis
+      namespace: NAMESPACE
+    spec:
+      replicas: 1
+      selector:
+        matchLabels:
+          app.kubernetes.io/instance: RELEASE-NAME
+          app.kubernetes.io/name: steadybit-extension-redis
+      template:
+        metadata:
+          annotations:
+            oneagent.dynatrace.com/injection: "false"
+          labels:
+            app.kubernetes.io/instance: RELEASE-NAME
+            app.kubernetes.io/name: steadybit-extension-redis
+            steadybit.com/discovery-disabled: "true"
+            steadybit.com/extension: "true"
+        spec:
+          containers:
+            - env:
+                - name: STEADYBIT_LOG_LEVEL
+                  value: INFO
+                - name: STEADYBIT_LOG_FORMAT
+                  value: text
+                - name: STEADYBIT_EXTENSION_INSECURE_SKIP_VERIFY
+                  value: "true"
+                - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
+                  value: "30"
+                - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS
+                  value: "60"
+                - name: SSL_CERT_DIR
+                  value: /etc/ssl/extra-certs:/etc/ssl/certs
+              image: ghcr.io/steadybit/extension-redis:v0.0.0
+              imagePullPolicy: IfNotPresent
+              livenessProbe:
+                failureThreshold: 5
+                httpGet:
+                  path: /health/liveness
+                  port: 8084
+                initialDelaySeconds: 10
+                periodSeconds: 10
+                successThreshold: 1
+                timeoutSeconds: 5
+              name: extension
+              readinessProbe:
+                failureThreshold: 3
+                httpGet:
+                  path: /health/readiness
+                  port: 8084
+                initialDelaySeconds: 10
+                periodSeconds: 10
+                successThreshold: 1
+                timeoutSeconds: 1
+              resources:
+                limits:
+                  cpu: 200m
+                  memory: 256Mi
+                requests:
+                  cpu: 50m
+                  memory: 32Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                capabilities:
+                  drop:
+                    - ALL
+                readOnlyRootFilesystem: true
+              volumeMounts:
+                - mountPath: /etc/ssl/extra-certs
+                  name: extra-certs
+                  readOnly: true
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          serviceAccountName: steadybit-extension-grafana
+          volumes:
+            - configMap:
+                name: redis-self-signed-ca
+              name: extra-certs
 manifest should match snapshot with default values:
   1: |
     apiVersion: apps/v1
@@ -30,6 +117,8 @@ manifest should match snapshot with default values:
                   value: INFO
                 - name: STEADYBIT_LOG_FORMAT
                   value: text
+                - name: STEADYBIT_EXTENSION_INSECURE_SKIP_VERIFY
+                  value: "false"
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
                   value: "30"
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS
@@ -107,6 +196,8 @@ manifest should match snapshot with global priority class:
                   value: INFO
                 - name: STEADYBIT_LOG_FORMAT
                   value: text
+                - name: STEADYBIT_EXTENSION_INSECURE_SKIP_VERIFY
+                  value: "false"
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
                   value: "30"
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS
@@ -185,6 +276,8 @@ manifest should match snapshot with priority class:
                   value: INFO
                 - name: STEADYBIT_LOG_FORMAT
                   value: text
+                - name: STEADYBIT_EXTENSION_INSECURE_SKIP_VERIFY
+                  value: "false"
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_INSTANCE_SECONDS
                   value: "30"
                 - name: STEADYBIT_EXTENSION_DISCOVERY_INTERVAL_DATABASE_SECONDS
