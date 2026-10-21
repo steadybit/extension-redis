@@ -13,6 +13,8 @@ redis:
     #     password: "secret"
     #     name: "my-redis"
     managementEndpoints: []
+  # redis.insecureSkipVerify -- If true, the extension skips TLS certificate verification for all rediss:// endpoints (e.g. for self-signed certificates). Can also be set per endpoint with `insecureSkipVerify`. Prefer mounting your CA, see README.
+  insecureSkipVerify: false
 
 # Extension configuration
 extension:
@@ -177,6 +179,20 @@ extraEnv: []
 #  - secretRef:
 #    name: env-secrets
 extraEnvFrom: []
+
+# extraVolumeMounts -- Additional volumeMounts to add to the container, e.g. to mount custom CA certificates
+# extraVolumeMounts:
+#   - name: extra-certs
+#     mountPath: /etc/ssl/extra-certs
+#     readOnly: true
+extraVolumeMounts: []
+
+# extraVolumes -- Additional volumes to add to the pod
+# extraVolumes:
+#   - name: extra-certs
+#     configMap:
+#       name: redis-self-signed-ca
+extraVolumes: []
 
 discovery:
   # discovery.group -- Optional group identifier. When set, the extension adds steadybit.group=<value> to every discovered target. Used as an additional matcher in enrichment rules.

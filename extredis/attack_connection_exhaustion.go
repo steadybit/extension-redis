@@ -6,7 +6,6 @@ package extredis
 
 import (
 	"context"
-	"crypto/tls"
 	"fmt"
 	"strings"
 	"sync"
@@ -80,13 +79,7 @@ func createSingleConnectionClient(url string, db int) (*redis.Client, error) {
 
 	// Configure TLS if using rediss://
 	if strings.HasPrefix(connectURL, "rediss://") {
-		if opts.TLSConfig == nil {
-			opts.TLSConfig = &tls.Config{}
-		}
-		opts.TLSConfig.MinVersion = tls.VersionTLS12
-		if endpoint != nil {
-			opts.TLSConfig.InsecureSkipVerify = endpoint.InsecureSkipVerify
-		}
+		opts.TLSConfig = clients.TLSConfig(opts.TLSConfig, endpoint != nil && endpoint.InsecureSkipVerify)
 	}
 
 	// Single connection - no pooling
