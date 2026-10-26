@@ -1,5 +1,10 @@
 # Changelog
 
+## v1.1.22
+
+- chore(deps): bump action_kit_test to v1.4.13 (#62)
+- feat: support Redis with self-signed certificates (#61)
+
 ## v1.1.21
 
 - chore(deps): bump github.com/alicebob/miniredis/v2 from 2.39.0 to 2.40.0
