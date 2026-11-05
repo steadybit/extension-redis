@@ -153,6 +153,7 @@ func (a *cacheExpirationAttack) Describe() action_kit_api.ActionDescription {
 				DefaultValue: new("true"),
 				Required:     new(false),
 				Advanced:     new(true),
+				Group:        new(action_kit_api.ParameterGroupAdditionalSettings),
 			},
 		},
 	}
