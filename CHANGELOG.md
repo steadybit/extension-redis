@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- feat: Redis checks show Fail early and the absolute Max Memory (MB) / Max Connections thresholds with the other check settings; Restore on Stop names its "Additional Settings" group explicitly
+
 ## v1.1.23
 
 - chore(deps): bump github.com/KimMachineGun/automemlimit

@@ -86,7 +86,6 @@ func (a *memoryCheck) Describe() action_kit_api.ActionDescription {
 				Type:         action_kit_api.ActionParameterTypeInteger,
 				DefaultValue: new("0"),
 				Required:     new(false),
-				Advanced:     new(true),
 			},
 			failEarlyParameter,
 		},
