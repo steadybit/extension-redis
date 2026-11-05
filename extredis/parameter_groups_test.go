@@ -64,10 +64,3 @@ func layout(t *testing.T, desc action_kit_api.ActionDescription) []string {
 	}
 	return names
 }
-
-func definedGroups(desc action_kit_api.ActionDescription) []action_kit_api.ParameterGroup {
-	if desc.ParameterGroups == nil {
-		return nil
-	}
-	return *desc.ParameterGroups
-}
