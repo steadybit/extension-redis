@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## v1.1.24
 
+- chore(deps): bump golang.org/x/net to v0.62.0
 - feat: Redis checks show Fail early and the absolute Max Memory (MB) / Max Connections thresholds with the other check settings; Restore on Stop names its "Additional Settings" group explicitly
+- feat: name the Additional Settings group of Restore on Stop
+- feat: show Fail early with the other check settings
+- feat: show the absolute thresholds with the other check settings
 
 ## v1.1.23
 
